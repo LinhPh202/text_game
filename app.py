@@ -1,167 +1,195 @@
 import streamlit as st
+import itertools
 import math
 
 # --- CẤU HÌNH ---
-st.set_page_config(page_title="Math Solver: Diagnostic", page_icon="🔧", layout="wide")
+st.set_page_config(page_title="Math Solver: Tùy Chọn Ngoặc", page_icon="🎛️", layout="wide")
 
-# --- HÀM KIỂM TRA LOẠI THẺ ---
-def get_token_type(token):
-    if isinstance(token, (int, float)): return "NUM"
-    if token in ['+', '-', '*', '/', '^']: return "BIN_OP" # Cầu nối
-    if token == 'v': return "UNARY_PRE"
-    if token == '!': return "UNARY_POST"
-    if token == '(': return "OPEN"
-    if token == ')': return "CLOSE"
-    return "UNKNOWN"
+# --- DANH SÁCH MẪU CÂU (TEMPLATES) ---
+# Mẫu số 0: Không ngoặc (Tính theo PEMDAS chuẩn: Nhân chia trước, cộng trừ sau)
+TEMPLATE_NO_BRACKET = ["{0}{5}{1}{6}{2}{7}{3}{8}{4}"]
 
-# --- THUẬT TOÁN QUAY LUI ---
-def solve_jigsaw(tokens, target_list, tolerance):
+# Các mẫu có ngoặc (Catalan patterns cho 5 số)
+TEMPLATES_WITH_BRACKET = [
+    "({0}{5}{1}){6}{2}{7}{3}{8}{4}",           # (A+B)+C+D+E
+    "{0}{5}({1}{6}{2}){7}{3}{8}{4}",           # A+(B+C)+D+E
+    "{0}{5}{1}{6}({2}{7}{3}){8}{4}",           # A+B+(C+D)+E
+    "{0}{5}{1}{6}{2}{7}({3}{8}{4})",           # A+B+C+(D+E)
+    "({0}{5}{1}{6}{2}){7}{3}{8}{4}",           # (A+B+C)+D+E
+    "{0}{5}({1}{6}{2}{7}{3}){8}{4}",           # A+(B+C+D)+E
+    "{0}{5}{1}{6}({2}{7}{3}{8}{4})",           # A+B+(C+D+E)
+    "(({0}{5}{1}){6}{2}){7}{3}{8}{4}",         # ((A+B)+C)+D+E
+    "({0}{5}({1}{6}{2})){7}{3}{8}{4}",         # (A+(B+C))+D+E
+    "{0}{5}(({1}{6}{2}){7}{3}){8}{4}",         # A+((B+C)+D)+E
+    "{0}{5}({1}{6}({2}{7}{3})){8}{4}",         # A+(B+(C+D))+E
+    "({0}{5}{1}){6}({2}{7}{3}){8}{4}",         # (A+B)+(C+D)+E
+    "(({0}{5}{1}){6}{2}{7}{3}){8}{4}",         # ((A+B)+C+D)+E
+    "({0}{5}{1}){6}{2}{7}({3}{8}{4})",         # (A+B)+C+(D+E)
+    "(({0}{5}{1}){6}({2}{7}{3})){8}{4}",       # ((A+B)+(C+D))+E
+    "{0}{5}(({1}{6}{2}){7}({3}{8}{4}))",       # A+((B+C)+(D+E))
+]
+
+def solve_math(numbers, operators, targets, tolerance, use_brackets):
     solutions = []
     seen_expr = set()
 
-    def backtrack(current_expr_list, remaining_tokens, balance, last_type):
-        # 1. KẾT THÚC CHUỖI
-        if not remaining_tokens:
-            if balance == 0 and last_type in ["NUM", "CLOSE", "UNARY_POST"]:
-                display_str = "".join([str(x) for x in current_expr_list])
-                if display_str in seen_expr: return
-                seen_expr.add(display_str)
+    # 1. Lọc phép tính nối (Binary Ops)
+    # Ta cần đúng 4 phép tính để nối 5 số
+    binary_ops_pool = [op for op in operators if op in ['+', '-', '*', '/', '^']]
+    
+    if len(binary_ops_pool) < 4:
+        return [], f"Thiếu phép tính! Bạn nhập {len(binary_ops_pool)} phép nối, nhưng cần tối thiểu 4 phép (+ - * / ^) cho 5 số."
 
+    # 2. Xác định danh sách mẫu sẽ dùng
+    # Luôn luôn dùng mẫu không ngoặc
+    active_patterns = TEMPLATE_NO_BRACKET[:]
+    
+    # Nếu user tick chọn dùng ngoặc thì thêm vào
+    if use_brackets:
+        active_patterns += TEMPLATES_WITH_BRACKET
+
+    # 3. Tạo hoán vị
+    # Hoán vị số
+    num_perms = list(itertools.permutations(numbers))
+    
+    # Hoán vị phép tính (Chọn 4 trong số các phép tính đã nhập)
+    # set() để loại bỏ các trường hợp trùng lặp nếu user nhập nhiều dấu giống nhau
+    op_perms = list(set(itertools.permutations(binary_ops_pool, 4)))
+
+    # 4. Vòng lặp chính
+    for n_p in num_perms:
+        for o_p in op_perms:
+            
+            # Chuẩn bị dữ liệu điền vào mẫu
+            # Python dùng ** cho mũ, nhưng hiển thị dùng ^
+            py_ops = [o.replace('^', '**') for o in o_p]
+            display_ops = o_p
+            
+            # List dữ liệu gộp: 5 Số + 4 Phép tính
+            fill_data_py = list(n_p) + list(py_ops)
+            fill_data_disp = list(n_p) + list(display_ops)
+
+            for pattern in active_patterns:
                 try:
-                    py_str = display_str.replace('^', '**')
-                    py_str = py_str.replace('v', 'math.sqrt') 
-                    # Xử lý trường hợp người dùng nhập v(...)
-                    # Code này giả định cú pháp Python hợp lệ
+                    # Tạo biểu thức hiển thị
+                    expr_disp = pattern.format(*fill_data_disp)
+
+                    if expr_disp in seen_expr: continue
+                    seen_expr.add(expr_disp)
+
+                    # Tạo biểu thức tính toán
+                    expr_py = pattern.format(*fill_data_py)
                     
-                    val = eval(py_str)
+                    # TÍNH TOÁN
+                    val = eval(expr_py)
                     
-                    if isinstance(val, complex): return
+                    if isinstance(val, complex): continue
                     
-                    for t in target_list:
+                    # Kiểm tra mục tiêu
+                    for t in targets:
                         diff = abs(val - t)
                         if diff <= tolerance:
-                            solutions.append({'val': val, 'expr': display_str, 'diff': diff, 'target': t})
-                except:
-                    return
-            return
+                            solutions.append({
+                                'val': val,
+                                'expr': expr_disp,
+                                'diff': diff,
+                                'target': t
+                            })
 
-        # 2. CHỌN THẺ
-        unique_tokens = sorted(list(set(remaining_tokens)), key=str)
-        
-        for token in unique_tokens:
-            t_type = get_token_type(token)
-            is_valid = False
-            
-            # RULE: Không cho phép ghép Số cạnh Số (3 5 -> Sai, phải là 35 hoặc 3*5)
-            # Ở đây ta mặc định không ghép số, bắt buộc phải có phép tính
-            
-            if last_type == "START":
-                if t_type in ["NUM", "OPEN", "UNARY_PRE"]: is_valid = True
-            elif last_type == "NUM":
-                if t_type in ["BIN_OP", "CLOSE", "UNARY_POST"]: is_valid = True
-            elif last_type == "BIN_OP":
-                if t_type in ["NUM", "OPEN", "UNARY_PRE"]: is_valid = True
-            elif last_type == "OPEN":
-                if t_type in ["NUM", "OPEN", "UNARY_PRE"]: is_valid = True
-            elif last_type == "CLOSE":
-                if t_type in ["BIN_OP", "CLOSE", "UNARY_POST"]: is_valid = True
-            elif last_type == "UNARY_PRE": 
-                if t_type == "OPEN": is_valid = True # Bắt v đi với (
-                if t_type == "NUM": is_valid = True  # Hoặc v đi với số (v5)
-            elif last_type == "UNARY_POST":
-                if t_type in ["BIN_OP", "CLOSE"]: is_valid = True
+                except (ValueError, ZeroDivisionError, OverflowError):
+                    continue
+                    
+    return solutions, None
 
-            if t_type == "CLOSE" and balance <= 0: is_valid = False
-            
-            if is_valid:
-                new_tokens = list(remaining_tokens)
-                new_tokens.remove(token)
-                new_balance = balance + 1 if t_type == "OPEN" else (balance - 1 if t_type == "CLOSE" else balance)
-                
-                # Heuristic: Cắt nhánh nếu không đủ token để đóng ngoặc
-                if len(new_tokens) < new_balance: continue
-                
-                backtrack(current_expr_list + [token], new_tokens, new_balance, t_type)
-
-    backtrack([], tokens, 0, "START")
-    return solutions
-
-# --- GIAO DIỆN ---
-st.title("🔧 Math Solver: Chẩn Đoán Lỗi")
-st.markdown("Công cụ này sẽ phân tích xem tại sao bạn không tìm ra kết quả.")
+# --- GIAO DIỆN NGƯỜI DÙNG ---
+st.title("🎛️ Math Solver: Tùy Chọn")
+st.markdown("Nhập 5 số và các phép tính. Hệ thống sẽ tự động hoán vị để tìm kết quả.")
 
 with st.sidebar:
-    st.header("Nhập liệu")
-    nums_in = st.text_input("Các số", "3 5 2 8 1")
-    ops_in = st.text_input("Các phép tính", "( ) + * /") 
-    # Mặc định để input gây lỗi để test
+    st.header("1. Nhập liệu")
+    nums_in = st.text_input("5 Số (cách nhau bởi dấu cách)", "3 5 2 8 1")
+    ops_in = st.text_input("Phép tính (nhập dư cũng được)", "+ - * / ^")
     
     st.divider()
-    tolerance = st.slider("Sai số (+/-)", 0.0, 10.0, 2.0, 0.1)
-    run_btn = st.button("🚀 Chạy & Phân Tích", type="primary")
+    
+    st.header("2. Tùy chọn")
+    # --- CHECKBOX QUAN TRỌNG ---
+    use_brackets = st.checkbox("Sử dụng Ngoặc ( )", value=False, help="Nếu tích, máy sẽ thử chèn các cặp ngoặc lồng nhau để thay đổi thứ tự tính toán.")
+    
+    tolerance = st.slider("Sai số cho phép (+/-)", 0.0, 5.0, 0.5, 0.1)
+    
+    st.divider()
+    run_btn = st.button("🚀 Tính Toán", type="primary")
 
 if run_btn:
-    clean_nums = nums_in.replace(',', ' ').split()
-    nums = [int(x) if float(x).is_integer() else float(x) for x in clean_nums]
-    clean_ops = ops_in.replace(',', ' ').split()
-    ops = [x.strip() for x in clean_ops]
-    tokens = nums + ops
-    
-    # --- PHÂN TÍCH LOGIC TOÁN HỌC (DIAGNOSTIC) ---
-    num_count = len(nums)
-    bin_op_count = sum(1 for op in ops if op in ['+', '-', '*', '/', '^'])
-    unary_count = sum(1 for op in ops if op in ['v', '!'])
-    bracket_count = sum(1 for op in ops if op in ['(', ')'])
-    
-    required_bridges = num_count - 1
-    
-    st.subheader("🔍 Phân tích Input của bạn:")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Số lượng Số (Hòn đảo)", num_count)
-    col2.metric("Phép nối (Cây cầu)", bin_op_count)
-    col3.metric("Ngoặc/Khác", bracket_count + unary_count)
-    
-    # LOGIC CHECK
-    if bin_op_count < required_bridges:
-        st.error(f"""
-        ❌ **LỖI THIẾU PHÉP TÍNH KẾT NỐI!**
+    try:
+        # Xử lý Input
+        clean_nums = nums_in.replace(',', ' ').split()
+        nums = [int(x) if float(x).is_integer() else float(x) for x in clean_nums]
         
-        Bạn có **{num_count} con số**, để nối tất cả chúng lại thành 1 chuỗi liên tục, bạn cần tối thiểu **{required_bridges} phép tính 2 ngôi** (`+ - * / ^`).
+        clean_ops = ops_in.replace(',', ' ').split()
+        ops = [x.strip() for x in clean_ops]
         
-        Hiện tại bạn chỉ cung cấp **{bin_op_count} phép tính**.
-        (Các dấu `(` `)` `v` `!` không giúp nối 2 số với nhau).
-        
-        👉 **Giải pháp:** Hãy thêm {required_bridges - bin_op_count} phép tính nữa vào ô nhập liệu (ví dụ thêm dấu `+` hoặc `*`).
-        """)
-    else:
-        st.success("✅ Số lượng phép tính đủ điều kiện toán học. Đang tìm kiếm...")
-        
-        with st.spinner("Đang xử lý..."):
-            all_results = solve_jigsaw(tokens, [1, 20], tolerance)
+        if len(nums) != 5:
+            st.error(f"Vui lòng nhập đúng 5 con số (Bạn đang nhập {len(nums)} số).")
+        else:
+            # Thông báo trạng thái
+            mode_text = "Có sử dụng ngoặc ( )" if use_brackets else "Không sử dụng ngoặc"
+            st.info(f"Đang tính toán... | Chế độ: **{mode_text}**")
             
-            if not all_results:
-                st.warning("Vẫn không tìm thấy kết quả phù hợp. Có thể các số này không thể tạo ra kết quả mong muốn với các phép tính đã cho.")
+            with st.spinner("Đang chạy hàng nghìn phép thử..."):
+                results, error = solve_math(nums, ops, [1, 20], tolerance, use_brackets)
+            
+            if error:
+                st.error(error)
+            elif not results:
+                st.warning("Không tìm thấy kết quả nào trong khoảng sai số này.")
             else:
-                # HIỂN THỊ KẾT QUẢ (TOP 10)
-                st.divider()
+                c1, c2 = st.columns(2)
+                
+                # Hàm hiển thị Report Top 10
                 def show_report(target, container):
-                    subset = [r for r in all_results if r['target'] == target]
+                    subset = [r for r in results if r['target'] == target]
                     subset.sort(key=lambda x: x['diff'])
                     
-                    unique_report = []
+                    # Lọc trùng lặp
+                    unique_res = []
                     seen = set()
                     for item in subset:
                         if item['expr'] not in seen:
-                            unique_report.append(item)
+                            unique_res.append(item)
                             seen.add(item['expr'])
-                        if len(unique_report) >= 5: break
+                        if len(unique_res) >= 10: break
                     
-                    container.caption(f"Mục tiêu: {target}")
-                    if not unique_report:
-                        container.info("Không có dữ liệu.")
-                    for item in unique_report:
-                        container.success(f"{item['expr']} = {item['val']:.4f}")
+                    container.subheader(f"🎯 Mục tiêu: {target}")
+                    
+                    if not unique_res:
+                        container.caption("Không có phương án phù hợp.")
+                        return
 
-                c1, c2 = st.columns(2)
+                    for i, item in enumerate(unique_res):
+                        # Logic màu sắc
+                        if item['diff'] < 1e-9: # Chính xác
+                            border = "2px solid #28a745"
+                            bg = "#e8f5e9"
+                            icon = "✅"
+                        else: # Gần đúng
+                            border = "1px solid #ffc107"
+                            bg = "#fffcf5"
+                            icon = "≈"
+                            
+                        container.markdown(f"""
+                        <div style="border: {border}; background: {bg}; padding: 8px; border-radius: 6px; margin-bottom: 8px;">
+                            <div style="font-weight: bold; font-size: 1.1em; color: #333;">{item['expr']}</div>
+                            <div style="display: flex; justify_content: space-between; margin-top: 4px;">
+                                <span style="color: #155724; font-weight: bold;">{icon} {item['val']:.5f}</span>
+                                <span style="color: #666; font-size: 0.85em;">Lệch: {item['diff']:.5f}</span>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
                 with c1: show_report(1, c1)
                 with c2: show_report(20, c2)
+
+    except Exception as e:
+        st.error(f"Lỗi hệ thống: {e}")
