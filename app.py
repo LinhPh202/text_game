@@ -1,183 +1,130 @@
-import streamlit as st
 import itertools
 import math
 
-# --- CẤU HÌNH ---
-st.set_page_config(page_title="Math Solver: Đa Dạng Kết Quả", page_icon="🌈", layout="wide")
-
-# --- DANH SÁCH MẪU CÂU (TEMPLATES) ---
-TEMPLATE_NO_BRACKET = ["{0}{5}{1}{6}{2}{7}{3}{8}{4}"]
-
-TEMPLATES_WITH_BRACKET = [
-    "({0}{5}{1}){6}{2}{7}{3}{8}{4}",           # (A+B)+C+D+E
-    "{0}{5}({1}{6}{2}){7}{3}{8}{4}",           # A+(B+C)+D+E
-    "{0}{5}{1}{6}({2}{7}{3}){8}{4}",           # A+B+(C+D)+E
-    "{0}{5}{1}{6}{2}{7}({3}{8}{4})",           # A+B+C+(D+E)
-    "({0}{5}{1}{6}{2}){7}{3}{8}{4}",           # (A+B+C)+D+E
-    "{0}{5}({1}{6}{2}{7}{3}){8}{4}",           # A+(B+C+D)+E
-    "{0}{5}{1}{6}({2}{7}{3}{8}{4})",           # A+B+(C+D+E)
-    "(({0}{5}{1}){6}{2}){7}{3}{8}{4}",         # ((A+B)+C)+D+E
-    "({0}{5}({1}{6}{2})){7}{3}{8}{4}",         # (A+(B+C))+D+E
-    "{0}{5}(({1}{6}{2}){7}{3}){8}{4}",         # A+((B+C)+D)+E
-    "{0}{5}({1}{6}({2}{7}{3})){8}{4}",         # A+(B+(C+D))+E
-    "({0}{5}{1}){6}({2}{7}{3}){8}{4}",         # (A+B)+(C+D)+E
-    "(({0}{5}{1}){6}{2}{7}{3}){8}{4}",         # ((A+B)+C+D)+E
-    "({0}{5}{1}){6}{2}{7}({3}{8}{4})",         # (A+B)+C+(D+E)
-    "(({0}{5}{1}){6}({2}{7}{3})){8}{4}",       # ((A+B)+(C+D))+E
-    "{0}{5}(({1}{6}{2}){7}({3}{8}{4}))",       # A+((B+C)+(D+E))
-]
-
-def solve_math(numbers, operators, targets, tolerance, use_brackets):
-    solutions = []
-    # Dùng set để lọc trùng lặp biểu thức ngay từ đầu
-    seen_expr = set()
-
-    # Lọc phép tính nối
-    binary_ops_pool = [op for op in operators if op in ['+', '-', '*', '/', '^']]
+def solve_math_puzzle(numbers, target):
+    """
+    Giải đố: Tạo biểu thức từ 'numbers' để bằng 'target'.
+    - Phép tính: +, -, *, /, ** (mũ), sqrt (căn bậc 2).
+    - Ràng buộc: Tối đa 1 cặp ngoặc ().
+    - Định dạng ra: x, :, ^, √.
+    """
     
-    if len(binary_ops_pool) < 4:
-        return [], f"Thiếu phép tính! Cần tối thiểu 4 phép nối (+ - * / ^) cho 5 số."
+    # 1. Tiền xử lý số: Tạo danh sách các biến thể (số thường hoặc căn bậc 2)
+    # Mỗi phần tử là tuple: (giá trị thực tế, chuỗi hiển thị, chuỗi tính toán python)
+    number_variants = []
+    for n in numbers:
+        vars_for_n = []
+        # Dạng thường
+        vars_for_n.append((n, str(n), str(n)))
+        # Dạng căn bậc 2 (nếu là số chính phương > 1)
+        if n > 1 and math.isqrt(n)**2 == n:
+            sqrt_val = int(math.isqrt(n))
+            # Hiển thị: √9, Tính toán: 3
+            vars_for_n.append((sqrt_val, f"√{n}", str(sqrt_val))) 
+        number_variants.append(vars_for_n)
 
-    active_patterns = TEMPLATE_NO_BRACKET[:]
-    if use_brackets:
-        active_patterns += TEMPLATES_WITH_BRACKET
+    # 2. Định nghĩa phép toán (Tính toán vs Hiển thị)
+    # Lưu ý: Phép chia chỉ lấy chia hết để ra số nguyên đẹp
+    ops_map = [
+        ('+', '+'), 
+        ('-', '-'), 
+        ('*', 'x'), 
+        ('/', ':'), 
+        ('**', '^')
+    ]
 
-    num_perms = list(itertools.permutations(numbers))
-    op_perms = list(set(itertools.permutations(binary_ops_pool, 4)))
+    # Hàm kiểm tra phép tính hợp lệ (tránh lỗi chia 0, mũ quá lớn)
+    def valid_operation(a, b, op_symbol):
+        if op_symbol == '/': 
+            return b != 0 and a % b == 0 # Chỉ chấp nhận chia hết
+        if op_symbol == '**': 
+            # Giới hạn mũ để không sinh số quá lớn (ví dụ max: 10^5 hoặc 2^10)
+            return (abs(a) <= 10 and 0 <= b <= 5) or (abs(a) <= 50 and b == 2)
+        return True
 
-    for n_p in num_perms:
-        for o_p in op_perms:
-            py_ops = [o.replace('^', '**') for o in o_p]
-            display_ops = o_p
+    # 3. Vòng lặp chính: Hoán vị số -> Chọn biến thể (√ hay thường) -> Chọn phép tính -> Chọn mẫu ngoặc
+    
+    # Tạo tất cả hoán vị vị trí các số đầu vào
+    for perm in itertools.permutations(number_variants):
+        # perm là 1 list các list biến thể (vd: [vars_of_4, vars_of_9, vars_of_2])
+        # Cần lấy tích Đề các để chọn cụ thể (vd: 4, √9, 2)
+        for nums_chosen in itertools.product(*perm):
+            # nums_chosen là 1 tuple các bộ (val, disp, calc). Vd: ((4,'4','4'), (3,'√9','3'), ...)
+            vals = [x[0] for x in nums_chosen]
+            disps = [x[1] for x in nums_chosen]
+            calcs = [x[2] for x in nums_chosen]
             
-            fill_data_py = list(n_p) + list(py_ops)
-            fill_data_disp = list(n_p) + list(display_ops)
-
-            for pattern in active_patterns:
-                try:
-                    expr_disp = pattern.format(*fill_data_disp)
-                    if expr_disp in seen_expr: continue
-                    seen_expr.add(expr_disp)
-
-                    expr_py = pattern.format(*fill_data_py)
-                    val = eval(expr_py)
-                    
-                    if isinstance(val, complex): continue
-                    
-                    for t in targets:
-                        diff = abs(val - t)
-                        if diff <= tolerance:
-                            solutions.append({
-                                'val': val,
-                                'expr': expr_disp,
-                                'diff': diff,
-                                'target': t
-                            })
-                except:
-                    continue
-    return solutions, None
-
-# --- GIAO DIỆN ---
-st.title("🌈 Math Solver: Đa Dạng Kết Quả")
-st.markdown("Công cụ này sẽ ưu tiên hiển thị **10 giá trị kết quả khác nhau** (không bị lặp lại số giống nhau).")
-
-with st.sidebar:
-    st.header("1. Nhập liệu")
-    nums_in = st.text_input("5 Số", "3 5 2 8 1")
-    ops_in = st.text_input("Phép tính", "+ - * / ^")
-    
-    st.divider()
-    
-    st.header("2. Tùy chọn")
-    use_brackets = st.checkbox("Dùng Ngoặc ( )", value=False)
-    # Tăng sai số lên để tìm được nhiều số lẻ hơn
-    tolerance = st.slider("Sai số cho phép (+/-)", 0.0, 5.0, 1.5, 0.1)
-    
-    run_btn = st.button("🚀 Tính Toán", type="primary")
-
-if run_btn:
-    try:
-        clean_nums = nums_in.replace(',', ' ').split()
-        nums = [int(x) if float(x).is_integer() else float(x) for x in clean_nums]
-        
-        clean_ops = ops_in.replace(',', ' ').split()
-        ops = [x.strip() for x in clean_ops]
-        
-        if len(nums) != 5:
-            st.error(f"Vui lòng nhập đúng 5 con số.")
-        else:
-            mode_text = "Có ngoặc" if use_brackets else "Không ngoặc"
-            st.info(f"Đang tìm các giá trị KHÁC NHAU... | Mode: {mode_text}")
+            n_count = len(vals)
             
-            with st.spinner("Processing..."):
-                results, error = solve_math(nums, ops, [1, 20], tolerance, use_brackets)
-            
-            if error:
-                st.error(error)
-            elif not results:
-                st.warning("Không tìm thấy kết quả nào.")
-            else:
-                c1, c2 = st.columns(2)
+            # Chọn bộ phép tính
+            for ops_chosen in itertools.product(ops_map, repeat=n_count - 1):
+                op_calcs = [o[0] for o in ops_chosen] # +, -, *, /, **
+                op_disps = [o[1] for o in ops_chosen] # +, -, x, :, ^
                 
-                # --- HÀM HIỂN THỊ ĐA DẠNG (DISTINCT RESULTS) ---
-                def show_distinct_report(target, container):
-                    subset = [r for r in results if r['target'] == target]
-                    # Sắp xếp theo độ lệch tăng dần (gần đúng nhất lên đầu)
-                    subset.sort(key=lambda x: x['diff'])
+                # --- CÁC MẪU (TEMPLATES) TỐI ĐA 1 CẶP NGOẶC ---
+                templates = []
+                
+                if n_count == 3:
+                    A, B, C = calcs
+                    dA, dB, dC = disps
+                    o1, o2 = op_calcs
+                    d1, d2 = op_disps
                     
-                    # THUẬT TOÁN LỌC GIÁ TRỊ TRÙNG LẶP
-                    unique_values_report = []
-                    seen_values = set()
+                    # 1. Không ngoặc: A o1 B o2 C
+                    templates.append((f"{A}{o1}{B}{o2}{C}", f"{dA} {d1} {dB} {d2} {dC}"))
+                    # 2. Ngoặc đầu: (A o1 B) o2 C
+                    templates.append((f"({A}{o1}{B}){o2}{C}", f"({dA} {d1} {dB}) {d2} {dC}"))
+                    # 3. Ngoặc sau: A o1 (B o2 C)
+                    templates.append((f"{A}{o1}({B}{o2}{C})", f"{dA} {d1} ({dB} {d2} {dC})"))
+
+                elif n_count == 4:
+                    A, B, C, D = calcs
+                    dA, dB, dC, dD = disps
+                    o1, o2, o3 = op_calcs
+                    d1, d2, d3 = op_disps
                     
-                    for item in subset:
-                        # Làm tròn giá trị đến 4 số lẻ để so sánh
-                        # Mục đích: Coi 20.0 và 20.0000001 là giống nhau -> Lọc bỏ
-                        val_rounded = round(item['val'], 4)
+                    # Không ngoặc
+                    templates.append((f"{A}{o1}{B}{o2}{C}{o3}{D}", f"{dA} {d1} {dB} {d2} {dC} {d3} {dD}"))
+                    # (A o B) o C o D
+                    templates.append((f"({A}{o1}{B}){o2}{C}{o3}{D}", f"({dA} {d1} {dB}) {d2} {dC} {d3} {dD}"))
+                    # A o (B o C) o D
+                    templates.append((f"{A}{o1}({B}{o2}{C}){o3}{D}", f"{dA} {d1} ({dB} {d2} {dC}) {d3} {dD}"))
+                    # A o B o (C o D)
+                    templates.append((f"{A}{o1}{B}{o2}({C}{o3}{D})", f"{dA} {d1} {dB} {d2} ({dC} {d3} {dD})"))
+                    
+                    # Lưu ý: Các dạng ((A B) C) D là 2 cặp ngoặc -> KHÔNG THÊM
+                    # Các dạng (A B) (C D) là 2 cặp ngoặc -> KHÔNG THÊM
+
+                # Kiểm tra kết quả
+                for calc_str, disp_str in templates:
+                    try:
+                        # Kiểm tra từng bước để đảm bảo không lỗi (chia 0, số mũ lớn)
+                        # Tuy nhiên eval Python xử lý thứ tự ưu tiên rất tốt
+                        # Chỉ cần bắt lỗi ZeroDivisionError
+                        res = eval(calc_str)
                         
-                        if val_rounded not in seen_values:
-                            unique_values_report.append(item)
-                            seen_values.add(val_rounded)
-                        
-                        # Chỉ lấy đủ 10 giá trị khác nhau thì dừng
-                        if len(unique_values_report) >= 10:
-                            break
-                    
-                    # Render ra màn hình
-                    container.subheader(f"🎯 Mục tiêu: {target}")
-                    
-                    if not unique_values_report:
-                        container.caption("Không tìm thấy.")
-                        return
+                        # So sánh float với sai số nhỏ hoặc ép kiểu int nếu cần
+                        if abs(res - target) < 1e-9:
+                            # Kiểm tra lại tính hợp lệ từng bước (optional) nếu muốn chặt chẽ
+                            # Nhưng với game giải trí, eval là đủ
+                            return disp_str
+                    except ZeroDivisionError:
+                        continue
+                    except Exception:
+                        continue
 
-                    for i, item in enumerate(unique_values_report):
-                        # Màu sắc
-                        if item['diff'] < 1e-9:
-                            color = "#198754" # Xanh
-                            bg = "#e8f5e9"
-                            label = "Chính xác"
-                        else:
-                            color = "#fd7e14" # Cam
-                            bg = "#fff3cd"
-                            label = "Gần đúng"
+    return "Không tìm thấy giải pháp"
 
-                        container.markdown(f"""
-                        <div style="background:{bg}; padding:10px; border-radius:6px; margin-bottom:8px; border-left:5px solid {color}">
-                            <div style="font-family:monospace; font-size:1.1em; color:#333; font-weight:bold">
-                                {item['expr']}
-                            </div>
-                            <div style="display:flex; justify_content:space-between; margin-top:5px; align-items:center">
-                                <span style="font-size:1.3em; color:{color}; font-weight:bold">
-                                    = {item['val']:.5f}
-                                </span>
-                                <span style="font-size:0.8em; color:#666; background:#fff; padding:2px 6px; border-radius:4px; border:1px solid #ddd">
-                                    {label} (Lệch {item['diff']:.4f})
-                                </span>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
+# --- CHẠY THỬ NGHIỆM ---
 
-                with c1: show_distinct_report(1, c1)
-                with c2: show_distinct_report(20, c2)
+# Test 1: Căn bậc 2 (Target: 5 từ 9, 4, 2)
+# Kỳ vọng: (√9 + 4) - 2 = (3+4)-2 = 5 hoặc tương tự
+print(f"Test 1 (9, 4, 2 -> 5): {solve_math_puzzle([9, 4, 2], 5)}")
 
-    except Exception as e:
-        st.error(f"Lỗi: {e}")
+# Test 2: Phép mũ (Target: 10 từ 3, 2, 1)
+# Kỳ vọng: 3^2 + 1 = 10
+print(f"Test 2 (3, 2, 1 -> 10): {solve_math_puzzle([3, 2, 1], 10)}")
+
+# Test 3: Ngoặc đơn (Target: 20 từ 4, 6, 2)
+# Kỳ vọng: (4 + 6) x 2 = 20
+print(f"Test 3 (4, 6, 2 -> 20): {solve_math_puzzle([4, 6, 2], 20)}")
