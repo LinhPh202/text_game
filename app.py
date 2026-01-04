@@ -1,165 +1,155 @@
 import streamlit as st
+import itertools
 import math
 
-# --- CẤU HÌNH TRANG ---
-st.set_page_config(page_title="Math Puzzle Solver", page_icon="🧮")
+# --- CẤU HÌNH ---
+st.set_page_config(page_title="Math Solver PEMDAS", page_icon="🧮")
 
-# --- HÀM XỬ LÝ TOÁN HỌC ---
-def get_factorial(n):
-    # Giới hạn giai thừa < 10 để tránh số quá lớn gây treo app
-    if n < 0 or n > 10 or not math.isclose(n, int(n)):
-        return None
-    return math.factorial(int(n))
-
-def get_sqrt(n):
-    if n < 0: return None
-    return math.sqrt(n)
-
-def calculate(a, op, b=None):
-    try:
-        if op == '+': return a + b
-        if op == '-': return a - b
-        if op == '*': return a * b
-        if op == '/': return a / b if b != 0 else None
-        if op == '^': 
-            # Giới hạn mũ để tránh overflow
-            if abs(a) > 1000 and b > 2: return None
-            if abs(b) > 10: return None 
-            return a ** b
-        if op == 'v': return get_sqrt(a)
-        if op == '!': return get_factorial(a)
-    except:
-        return None
-    return None
-
-# --- HÀM ĐỆ QUY TÌM KIẾM ---
-def solve_recursive(current_val, nums_left, ops_left, history, results):
-    # Điều kiện dừng: Hết số và hết phép tính
-    if not nums_left and not ops_left:
-        results.append({
-            'val': current_val,
-            'path': history
-        })
-        return
-
-    # Tối ưu: Nếu số lượng phép tính 2 ngôi (binary) nhiều hơn số lượng số còn lại -> Không thể giải -> Cắt nhánh sớm
-    binary_ops_count = sum(1 for op in ops_left if op in ['+', '-', '*', '/', '^'])
-    if binary_ops_count > len(nums_left):
-        return
-
-    unique_ops = set(ops_left)
+# --- HÀM XỬ LÝ CHUỖI ---
+def solve_pemdas(numbers, operators, targets):
+    solutions = []
     
-    # 1. Thử phép tính 1 ngôi (Unary: v, !)
-    for op in unique_ops:
+    # Phân loại phép tính
+    binary_ops_pool = [] # 2 ngôi: +, -, *, /, ^
+    unary_ops_pool = []  # 1 ngôi: v, !
+    
+    for op in operators:
         if op in ['v', '!']:
-            new_val = calculate(current_val, op)
-            if new_val is not None:
-                new_ops = ops_left[:]
-                new_ops.remove(op)
-                solve_recursive(new_val, nums_left, new_ops, history + f" {op} → {new_val:.2f} |", results)
+            unary_ops_pool.append(op)
+        else:
+            binary_ops_pool.append(op)
+            
+    # --- KIỂM TRA ĐIỀU KIỆN TOÁN HỌC ---
+    # Để nối 5 số thành 1 chuỗi không ngoặc (A + B * C...), ta cần đúng 4 phép nối (binary).
+    # Phép tính 1 ngôi (unary) sẽ dính vào số (ví dụ: 3! hoặc v9).
+    
+    if len(binary_ops_pool) != 4:
+        return None, "Lỗi Toán Học: Với 5 con số, bạn cần chính xác 4 phép tính 2 ngôi (+, -, *, /, ^) để kết nối chúng. Số phép tính còn lại phải là 1 ngôi (v, !)."
 
-    # 2. Thử phép tính 2 ngôi (Binary: +, -, *, /, ^)
-    if nums_left:
-        for i, num in enumerate(set(nums_left)): 
-            for op in unique_ops:
-                if op in ['+', '-', '*', '/', '^']:
-                    new_val = calculate(current_val, op, num)
-                    if new_val is not None:
-                        new_ops = ops_left[:]
-                        new_ops.remove(op)
-                        new_nums = nums_left[:]
-                        new_nums.remove(num)
-                        solve_recursive(new_val, new_nums, new_ops, history + f" {op} {num} → {new_val:.2f} |", results)
+    # --- BẮT ĐẦU TÌM KIẾM ---
+    # 1. Hoán vị các số (Permutations of Numbers)
+    num_perms = list(itertools.permutations(numbers))
+    
+    # 2. Hoán vị các phép tính 2 ngôi (Permutations of Binary Ops)
+    bin_op_perms = list(itertools.set_permutations(binary_ops_pool)) if hasattr(itertools, 'set_permutations') else list(itertools.permutations(binary_ops_pool))
+    # Lưu ý: itertools không có set_permutations mặc định, dùng set để lọc trùng sau
+    bin_op_perms = list(set(bin_op_perms))
 
-# --- GIAO DIỆN STREAMLIT ---
-st.title("🧮 Thợ Giải Đố 5 Số - 5 Phép Tính")
+    # 3. Xử lý phép tính 1 ngôi (Unary)
+    # Vì bài toán yêu cầu dùng hết 5 phép tính, và ta đã dùng 4 binary, 
+    # nên ta giả định chỉ còn 1 phép Unary (hoặc code này hỗ trợ tối đa logic cho 1 unary để chèn vào).
+    unary_op = unary_ops_pool[0] if unary_ops_pool else None
+    
+    seen_formulas = set()
+
+    for n_perm in num_perms:
+        for b_perm in bin_op_perms:
+            # Cấu trúc cơ bản: N0 [op0] N1 [op1] N2 [op2] N3 [op3] N4
+            # Bây giờ ta phải chèn phép Unary (nếu có) vào một trong 5 vị trí số
+            
+            range_positions = range(5) if unary_op else [0]
+            
+            for u_pos in range_positions:
+                # Xây dựng chuỗi biểu thức để Python eval
+                # Python eval sẽ tự động lo Nhân chia trước, Cộng trừ sau
+                
+                # Tạo list các số dưới dạng chuỗi (để chèn Unary vào)
+                str_nums = [str(n) for n in n_perm]
+                
+                # Chèn Unary vào số tại vị trí u_pos
+                if unary_op == 'v':
+                    str_nums[u_pos] = f"math.sqrt({str_nums[u_pos]})"
+                elif unary_op == '!':
+                    str_nums[u_pos] = f"math.factorial({str_nums[u_pos]})"
+                
+                # Ghép chuỗi: Số0 Op0 Số1 Op1 ...
+                # Python dùng ** cho lũy thừa
+                py_ops = [op.replace('^', '**') for op in b_perm]
+                
+                expression = f"{str_nums[0]} {py_ops[0]} {str_nums[1]} {py_ops[1]} {str_nums[2]} {py_ops[2]} {str_nums[3]} {py_ops[3]} {str_nums[4]}"
+                
+                # Hiển thị đẹp (để in ra màn hình)
+                display_ops = b_perm
+                display_nums = [str(n) for n in n_perm]
+                if unary_op == 'v': display_nums[u_pos] = f"√{n_perm[u_pos]}"
+                elif unary_op == '!': display_nums[u_pos] = f"{n_perm[u_pos]}!"
+                
+                pretty_expr = f"{display_nums[0]} {display_ops[0]} {display_nums[1]} {display_ops[1]} {display_nums[2]} {display_ops[2]} {display_nums[3]} {display_ops[3]} {display_nums[4]}"
+
+                if pretty_expr in seen_formulas:
+                    continue
+                seen_formulas.add(pretty_expr)
+
+                try:
+                    # EVALUATE
+                    # Cần bắt lỗi: chia 0, căn số âm, số quá lớn
+                    val = eval(expression)
+                    
+                    # Chỉ lấy số thực, không lấy số phức
+                    if isinstance(val, complex): continue
+                    
+                    # Kiểm tra độ gần với các target
+                    for t in targets:
+                        if math.isclose(val, t, abs_tol=0.1) or abs(val - t) < 1.0: # Lấy biên độ rộng chút để lọc sau
+                            solutions.append({'val': val, 'expr': pretty_expr, 'diff': abs(val - t), 'target': t})
+                            
+                except (ValueError, ZeroDivisionError, OverflowError):
+                    continue
+
+    return solutions, None
+
+# --- GIAO DIỆN ---
+st.title("🧮 PEMDAS Puzzle Solver")
 st.markdown("""
-Công cụ này giúp tìm cách kết hợp **5 con số** và **5 phép tính** để ra kết quả mong muốn.
-Luật chơi: Không dùng ngoặc, tính tuần tự từ trái qua phải.
+Giải đố 5 số & 5 phép tính theo quy tắc **Nhân chia trước - Cộng trừ sau**.
+**Lưu ý quan trọng:** Để kết nối 5 số thành 1 biểu thức hợp lệ, bạn cần cung cấp **4 phép tính 2 ngôi** (`+ - * / ^`) và **1 phép tính 1 ngôi** (`v !`).
 """)
 
-with st.expander("ℹ️ Xem hướng dẫn nhập liệu"):
-    st.markdown("""
-    - **Phép tính hỗ trợ:** `+`, `-`, `*`, `/`, `^` (mũ), `v` (căn), `!` (giai thừa).
-    - **Lưu ý:** `v` và `!` là phép tính 1 ngôi (tác động ngay lên số hiện tại).
-    - Nhập các số và phép tính cách nhau bởi **dấu phẩy** hoặc **dấu cách**.
-    """)
-
 col1, col2 = st.columns(2)
-
 with col1:
-    input_nums_str = st.text_input("Nhập 5 số", "3, 5, 2, 8, 1")
-    
+    nums_in = st.text_input("5 Số (cách nhau bởi phẩy/cách)", "3, 5, 2, 8, 1")
 with col2:
-    input_ops_str = st.text_input("Nhập 5 phép tính", "+, *, -, v, ^")
+    ops_in = st.text_input("5 Phép tính", "+, *, -, ^, v")
 
-target_1 = 1
-target_2 = 20
-
-# Nút bấm xử lý
-if st.button("🚀 Tìm Lời Giải", type="primary"):
-    # 1. Xử lý dữ liệu đầu vào
+if st.button("🚀 Tính Toán", type="primary"):
     try:
-        # Làm sạch chuỗi input (thay dấu phẩy thành cách, rồi split)
-        nums = [float(x) for x in input_nums_str.replace(',', ' ').split()]
-        ops = [x.strip() for x in input_ops_str.replace(',', ' ').split()]
+        # Parse Input
+        nums = [int(x) if float(x).is_integer() else float(x) for x in nums_in.replace(',', ' ').split()]
+        ops = [x.strip() for x in ops_in.replace(',', ' ').split()]
         
-        if len(nums) == 0 or len(ops) == 0:
-            st.error("Vui lòng nhập đủ số và phép tính.")
+        if len(nums) != 5 or len(ops) != 5:
+            st.error("Vui lòng nhập đúng 5 số và 5 phép tính.")
             st.stop()
             
-    except ValueError:
-        st.error("Lỗi định dạng số. Vui lòng kiểm tra lại.")
-        st.stop()
-
-    st.write(f"**Dữ liệu:** Số `{nums}` | Phép tính `{ops}`")
-    
-    # 2. Chạy thuật toán
-    results = []
-    
-    progress_text = "Đang thử hàng nghìn trường hợp..."
-    my_bar = st.progress(0, text=progress_text)
-    
-    # Bắt đầu duyệt (Loop qua từng số khởi đầu)
-    total_start_nums = len(set(nums))
-    for idx, start_num in enumerate(set(nums)):
-        rem_nums = nums[:]
-        rem_nums.remove(start_num)
-        solve_recursive(start_num, rem_nums, ops, f"Bắt đầu: {start_num} |", results)
-        # Cập nhật thanh tiến trình
-        my_bar.progress(int((idx + 1) / total_start_nums * 100), text=progress_text)
+        # Run Solver
+        with st.spinner("Đang hoán vị và tính toán theo quy tắc ưu tiên..."):
+            results, error = solve_pemdas(nums, ops, [1, 20])
         
-    my_bar.empty() # Xóa thanh tiến trình khi xong
+        if error:
+            st.warning(error)
+        else:
+            if not results:
+                st.info("Không tìm thấy kết quả nào đủ gần (sai số < 1). Hãy thử đổi số hoặc phép tính.")
+            else:
+                st.success(f"Đã tìm thấy {len(results)} phương án khả thi!")
+                
+                c1, c2 = st.columns(2)
+                
+                # Kết quả gần 1
+                with c1:
+                    st.subheader("🎯 Mục tiêu: Gần 1")
+                    res_1 = [r for r in results if r['target'] == 1]
+                    res_1.sort(key=lambda x: x['diff'])
+                    for r in res_1[:5]: # Top 5
+                        st.code(f"{r['expr']} = {r['val']:.4f}", language='text')
 
-    if not results:
-        st.warning("Không tìm thấy phép giải nào hợp lệ (Có thể do thiếu cân bằng giữa phép tính 1 ngôi và 2 ngôi).")
-    else:
-        # 3. Hiển thị kết quả
-        st.divider()
-        res_col1, res_col2 = st.columns(2)
-
-        # -- KẾT QUẢ GẦN 1 --
-        with res_col1:
-            st.subheader(f"🎯 Mục tiêu: Gần {target_1}")
-            results.sort(key=lambda x: abs(x['val'] - target_1))
-            top_3_near_1 = results[:3]
-            
-            for i, sol in enumerate(top_3_near_1):
-                diff = abs(sol['val'] - target_1)
-                with st.container(border=True):
-                    st.markdown(f"**Kết quả:** `{sol['val']:.4f}`")
-                    st.caption(f"Độ lệch: {diff:.4f}")
-                    st.code(sol['path'], language="text")
-
-        # -- KẾT QUẢ GẦN 20 --
-        with res_col2:
-            st.subheader(f"🎯 Mục tiêu: Gần {target_2}")
-            results.sort(key=lambda x: abs(x['val'] - target_2))
-            top_3_near_20 = results[:3]
-            
-            for i, sol in enumerate(top_3_near_20):
-                diff = abs(sol['val'] - target_2)
-                with st.container(border=True):
-                    st.markdown(f"**Kết quả:** `{sol['val']:.4f}`")
-                    st.caption(f"Độ lệch: {diff:.4f}")
-                    st.code(sol['path'], language="text")
+                # Kết quả gần 20
+                with c2:
+                    st.subheader("🎯 Mục tiêu: Gần 20")
+                    res_20 = [r for r in results if r['target'] == 20]
+                    res_20.sort(key=lambda x: x['diff'])
+                    for r in res_20[:5]: # Top 5
+                        st.code(f"{r['expr']} = {r['val']:.4f}", language='text')
+                        
+    except Exception as e:
+        st.error(f"Có lỗi xảy ra: {e}")
