@@ -1,191 +1,199 @@
 import streamlit as st
-import itertools
 import math
 
 # --- CẤU HÌNH ---
-st.set_page_config(page_title="Math Solver PEMDAS", page_icon="🧮", layout="wide")
+st.set_page_config(page_title="Math Jigsaw Solver", page_icon="🧩", layout="wide")
 
-# --- HÀM XỬ LÝ TOÁN HỌC ---
-def solve_pemdas(numbers, operators, targets, tolerance):
+# --- HÀM KIỂM TRA LOẠI THẺ ---
+def get_token_type(token):
+    if isinstance(token, (int, float)): return "NUM"
+    if token in ['+', '-', '*', '/', '^']: return "BIN_OP"
+    if token == 'v': return "UNARY_PRE"
+    if token == '!': return "UNARY_POST"
+    if token == '(': return "OPEN"
+    if token == ')': return "CLOSE"
+    return "UNKNOWN"
+
+# --- THUẬT TOÁN QUAY LUI (BACKTRACKING) ---
+def solve_jigsaw(tokens, target_list, tolerance):
     solutions = []
-    
-    # 1. Phân loại phép tính
-    binary_ops_pool = [] # 2 ngôi: +, -, *, /, ^
-    unary_ops_pool = []  # 1 ngôi: v, !
-    
-    for op in operators:
-        if op in ['v', '!']:
-            unary_ops_pool.append(op)
-        else:
-            binary_ops_pool.append(op)
-            
-    # --- CHECK LOGIC ---
-    # Cần đúng 4 binary ops cho 5 số
-    if len(binary_ops_pool) != 4:
-        return None, "Lỗi: Để nối 5 số, bạn CẦN ĐÚNG 4 phép tính 2 ngôi (+ - * / ^). Các phép tính còn lại phải là 1 ngôi (v !)."
+    seen_expr = set()
 
-    # --- TẠO HOÁN VỊ ---
-    num_perms = list(itertools.permutations(numbers))
-    
-    # Lấy hoán vị phép tính (loại bỏ trùng lặp nếu có phép tính giống nhau)
-    bin_op_perms = list(set(itertools.permutations(binary_ops_pool)))
+    def backtrack(current_expr_list, remaining_tokens, balance, last_type):
+        # 1. KẾT THÚC CHUỖI
+        if not remaining_tokens:
+            # Đóng hết ngoặc & không tận cùng bằng phép tính
+            if balance == 0 and last_type in ["NUM", "CLOSE", "UNARY_POST"]:
+                
+                # Tạo chuỗi hiển thị
+                display_str = "".join([str(x) for x in current_expr_list])
+                
+                if display_str in seen_expr: return
+                seen_expr.add(display_str)
 
-    # Xử lý phép tính Unary (nếu có 1 phép)
-    # Nếu list unary rỗng, gán None để chạy loop 1 lần
-    unary_op = unary_ops_pool[0] if unary_ops_pool else None
-    
-    seen_formulas = set()
-
-    # --- VÒNG LẶP TÌM KIẾM ---
-    for n_perm in num_perms:
-        for b_perm in bin_op_perms:
-            # Nếu có unary, thử gắn vào từng vị trí trong 5 số
-            # Nếu không có unary, chỉ chạy loop 1 lần (range(1))
-            range_positions = range(5) if unary_op else [None]
-            
-            for u_pos in range_positions:
-                
-                # Tạo list chuỗi số
-                str_nums = [str(n) for n in n_perm]
-                
-                # Chèn Unary (nếu có)
-                if u_pos is not None and unary_op:
-                    if unary_op == 'v':
-                        str_nums[u_pos] = f"math.sqrt({str_nums[u_pos]})"
-                    elif unary_op == '!':
-                        str_nums[u_pos] = f"math.factorial({str_nums[u_pos]})"
-                
-                # Chuyển đổi ký hiệu cho Python eval
-                py_ops = [op.replace('^', '**') for op in b_perm]
-                
-                # Tạo chuỗi biểu thức Python
-                expression = f"{str_nums[0]}{py_ops[0]}{str_nums[1]}{py_ops[1]}{str_nums[2]}{py_ops[2]}{str_nums[3]}{py_ops[3]}{str_nums[4]}"
-                
-                # Tạo chuỗi hiển thị đẹp
-                display_ops = b_perm
-                display_nums = [str(n) for n in n_perm]
-                if u_pos is not None and unary_op == 'v': display_nums[u_pos] = f"√{n_perm[u_pos]}"
-                elif u_pos is not None and unary_op == '!': display_nums[u_pos] = f"{n_perm[u_pos]}!"
-                
-                pretty_expr = f"{display_nums[0]} {display_ops[0]} {display_nums[1]} {display_ops[1]} {display_nums[2]} {display_ops[2]} {display_nums[3]} {display_ops[3]} {display_nums[4]}"
-
-                if pretty_expr in seen_formulas: continue
-                seen_formulas.add(pretty_expr)
-
+                # Tạo chuỗi tính toán (Xử lý Python syntax)
                 try:
-                    # TÍNH TOÁN
-                    val = eval(expression)
+                    # Chuyển đổi sơ bộ: ^ -> **
+                    # Lưu ý: Code này tập trung vào phép tính cơ bản & ngoặc.
+                    # Căn (v) và Giai thừa (!) trong chế độ xếp hình tự do rất khó parse
+                    # nên ta xử lý đơn giản: thay thế ký tự nếu có thể.
                     
-                    if isinstance(val, complex): continue # Bỏ số phức
+                    py_str = display_str.replace('^', '**')
                     
-                    # KIỂM TRA MỤC TIÊU
-                    for t in targets:
+                    # Trick xử lý căn 'v': thay v thành math.sqrt nhưng phải có ngoặc
+                    # Ở đây ta giả định người dùng nhập v(...) hoặc vSố
+                    # Nếu quá phức tạp sẽ bỏ qua case lỗi.
+                    py_str = py_str.replace('v', 'math.sqrt') 
+                    # Lưu ý: math.sqrt5 là lỗi, phải là math.sqrt(5). 
+                    # Do đó, người dùng nên nhập 'v' '(' '5' ')' để an toàn nhất.
+
+                    val = eval(py_str)
+                    
+                    if isinstance(val, complex): return
+                    
+                    for t in target_list:
                         diff = abs(val - t)
+                        # Lưu hết tất cả kết quả nằm trong sai số
                         if diff <= tolerance:
                             solutions.append({
-                                'val': val, 
-                                'expr': pretty_expr, 
-                                'diff': diff, 
+                                'val': val,
+                                'expr': display_str,
+                                'diff': diff,
                                 'target': t
                             })
-                            
-                except (ValueError, ZeroDivisionError, OverflowError):
-                    continue
+                except:
+                    return
+            return
 
-    return solutions, None
+        # 2. CHỌN THẺ TIẾP THEO
+        unique_tokens = sorted(list(set(remaining_tokens)), key=str)
+        
+        for token in unique_tokens:
+            t_type = get_token_type(token)
+            is_valid = False
+            
+            # --- CHECK NGỮ PHÁP (Grammar Rules) ---
+            if last_type == "START":
+                if t_type in ["NUM", "OPEN", "UNARY_PRE"]: is_valid = True
+            elif last_type == "NUM":
+                if t_type in ["BIN_OP", "CLOSE", "UNARY_POST"]: is_valid = True
+            elif last_type == "BIN_OP":
+                if t_type in ["NUM", "OPEN", "UNARY_PRE"]: is_valid = True
+            elif last_type == "OPEN":
+                if t_type in ["NUM", "OPEN", "UNARY_PRE"]: is_valid = True
+            elif last_type == "CLOSE":
+                if t_type in ["BIN_OP", "CLOSE", "UNARY_POST"]: is_valid = True
+            elif last_type == "UNARY_PRE": # v
+                if t_type == "OPEN": is_valid = True # Bắt buộc v(
+            elif last_type == "UNARY_POST": # !
+                if t_type in ["BIN_OP", "CLOSE"]: is_valid = True
+
+            if t_type == "CLOSE" and balance <= 0: is_valid = False
+            
+            if is_valid:
+                new_tokens = list(remaining_tokens)
+                new_tokens.remove(token)
+                new_balance = balance + 1 if t_type == "OPEN" else (balance - 1 if t_type == "CLOSE" else balance)
+                
+                # Cắt nhánh: Nếu không đủ thẻ để đóng ngoặc
+                if len(new_tokens) < new_balance: continue
+
+                backtrack(current_expr_list + [token], new_tokens, new_balance, t_type)
+
+    backtrack([], tokens, 0, "START")
+    return solutions
 
 # --- GIAO DIỆN CHÍNH ---
-st.title("🧮 PEMDAS Solver: Tìm Số Thập Phân")
+st.title("🧩 Solver: Tìm Số Thập Phân Gần Đúng")
 st.markdown("""
-Tìm kiếm các biểu thức có kết quả **GẦN ĐÚNG** với mục tiêu (1 và 20).
+Công cụ này sẽ sắp xếp các mảnh ghép để tìm ra kết quả **GẦN NHẤT** với mục tiêu (1 và 20).
+Nó sẽ ưu tiên hiển thị cả các phép tính ra số lẻ (ví dụ: 1.1, 19.9).
 """)
 
-# Cột nhập liệu
 with st.sidebar:
-    st.header("Cấu hình")
-    nums_in = st.text_input("5 Số (ngăn cách bởi dấu cách)", "3 5 2 8 1")
-    ops_in = st.text_input("5 Phép tính", "+ * - ^ v")
+    st.header("Nhập liệu")
+    # Mẹo: Thêm phép chia / để dễ ra số thập phân
+    nums_in = st.text_input("Các số", "3 5 2 8 1")
+    ops_in = st.text_input("Các phép tính", "( ) + / *")
+    st.caption("💡 Mẹo: Muốn ra số thập phân, hãy dùng phép chia `/` hoặc căn `v`.")
     
     st.divider()
-    
-    # THANH TRƯỢT QUAN TRỌNG: ĐIỀU CHỈNH ĐỘ SAI SỐ
-    st.markdown("**🎯 Độ chính xác**")
-    tolerance = st.slider(
-        "Sai số cho phép (+/-)", 
-        min_value=0.0, 
-        max_value=5.0, 
-        value=1.5, 
-        step=0.1,
-        help="Ví dụ: Nếu chọn 1.5, mục tiêu là 20 sẽ chấp nhận kết quả từ 18.5 đến 21.5"
-    )
-    
+    # Tăng sai số mặc định lên để dễ tìm thấy kết quả "gần đúng"
+    tolerance = st.slider("Sai số cho phép (+/-)", 0.0, 10.0, 2.0, 0.1)
     run_btn = st.button("🚀 Chạy Tìm Kiếm", type="primary")
 
-# Xử lý Logic
 if run_btn:
-    try:
-        # Parse Input
-        clean_nums = nums_in.replace(',', ' ').split()
-        nums = [int(x) if float(x).is_integer() else float(x) for x in clean_nums]
-        
-        clean_ops = ops_in.replace(',', ' ').split()
-        ops = [x.strip() for x in clean_ops]
-        
-        if len(nums) != 5 or len(ops) != 5:
-            st.error(f"Đang nhập: {len(nums)} số và {len(ops)} phép tính. Cần chính xác 5.")
-        else:
-            with st.spinner("Đang tính toán hàng nghìn khả năng..."):
-                results, error = solve_pemdas(nums, ops, [1, 20], tolerance)
-            
-            if error:
-                st.warning(error)
-            elif not results:
-                st.info(f"Không tìm thấy kết quả nào trong khoảng sai số +/- {tolerance}. Hãy thử tăng sai số lên.")
-            else:
-                # HIỂN THỊ KẾT QUẢ
-                st.success(f"Tìm thấy {len(results)} phương án!")
-                
-                col1, col2 = st.columns(2)
-                
-                # --- HÀM HIỂN THỊ LIST ---
-                def show_results(target_val, container):
-                    subset = [r for r in results if r['target'] == target_val]
-                    # Sắp xếp theo độ lệch nhỏ nhất trước
-                    subset.sort(key=lambda x: x['diff'])
-                    # Lấy Top 10
-                    top_10 = subset[:10]
-                    
-                    if not top_10:
-                        container.info("Không có kết quả phù hợp.")
-                        return
+    # Xử lý input
+    clean_nums = nums_in.replace(',', ' ').split()
+    nums = [int(x) if float(x).is_integer() else float(x) for x in clean_nums]
+    clean_ops = ops_in.replace(',', ' ').split()
+    ops = [x.strip() for x in clean_ops]
+    tokens = nums + ops
+    
+    st.info(f"Đang tìm cách sắp xếp **{len(tokens)} mảnh ghép**: `{tokens}`")
 
-                    for item in top_10:
-                        # Logic màu sắc: Màu xanh nếu rất gần (<0.1), màu vàng nếu hơi xa
-                        color = "green" if item['diff'] < 0.1 else "orange"
+    with st.spinner("Đang tính toán các trường hợp thập phân..."):
+        results = solve_jigsaw(tokens, [1, 20], tolerance)
+        
+        if not results:
+            st.warning("Không tìm thấy kết quả nào trong khoảng sai số này.")
+        else:
+            st.success(f"Tìm thấy {len(results)} phương án!")
+            
+            c1, c2 = st.columns(2)
+            
+            def show_detailed_results(target, container):
+                subset = [r for r in results if r['target'] == target]
+                subset.sort(key=lambda x: x['diff'])
+                
+                if not subset:
+                    container.caption("Không có nghiệm phù hợp.")
+                    return
+                
+                # Lọc trùng lặp biểu thức
+                seen = set()
+                unique_subset = []
+                for x in subset:
+                    if x['expr'] not in seen:
+                        unique_subset.append(x)
+                        seen.add(x['expr'])
+                
+                # Chia làm 2 nhóm: Chính xác (Diff=0) và Gần đúng (Diff>0)
+                exacts = [x for x in unique_subset if x['diff'] < 0.000001]
+                approximates = [x for x in unique_subset if x['diff'] >= 0.000001]
+
+                # HIỂN THỊ CHÍNH XÁC
+                if exacts:
+                    container.markdown(f"##### ✅ Chính xác tuyệt đối ({target})")
+                    for item in exacts[:3]:
+                        container.code(f"{item['expr']} = {item['val']}", language='text')
+                
+                # HIỂN THỊ GẦN ĐÚNG (DECIMAL)
+                if approximates:
+                    container.markdown(f"##### ≈ Các phương án Gần đúng nhất")
+                    for item in approximates[:10]: # Lấy top 10 gần nhất
                         
+                        # Logic màu: Lệch ít (<0.5) màu xanh, Lệch nhiều màu cam
+                        color_code = "#0f5132" if item['diff'] < 0.5 else "#664d03"
+                        bg_code = "#d1e7dd" if item['diff'] < 0.5 else "#fff3cd"
+                        
+                        # Hiển thị dạng Card
                         container.markdown(f"""
-                        <div style="padding: 10px; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 10px;">
-                            <div style="font-size: 1.2em; font-weight: bold; color: #333;">
-                                {item['expr']} 
-                            </div>
-                            <div style="display: flex; justify_content: space-between; align-items: center;">
-                                <span style="font-size: 1.1em; color: {color}; font-weight: bold;">
-                                    = {item['val']:.5f}
-                                </span>
-                                <span style="font-size: 0.9em; color: #666;">
-                                    (Lệch: {item['diff']:.5f})
-                                </span>
+                        <div style="background:{bg_code}; padding:8px; border-radius:6px; margin-bottom:6px; border-left: 4px solid {color_code}">
+                            <div style="font-size:14px; color:#333; font-family:monospace;">{item['expr']}</div>
+                            <div style="display:flex; justify_content:space-between; align-items:center;">
+                                <strong style="color:{color_code}; font-size:16px;">= {item['val']:.5f}</strong>
+                                <span style="font-size:12px; color:#666;">(Lệch: {item['diff']:.5f})</span>
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
+                elif not exacts:
+                    container.write("Chưa tìm thấy kết quả gần đúng.")
 
-                with col1:
-                    st.header("🎯 Mục tiêu ~ 1")
-                    show_results(1, col1)
-                
-                with col2:
-                    st.header("🎯 Mục tiêu ~ 20")
-                    show_results(20, col2)
-
-    except Exception as e:
-        st.error(f"Lỗi nhập liệu: {e}")
+            with c1:
+                st.subheader("Mục tiêu ~ 1")
+                show_detailed_results(1, c1)
+            
+            with c2:
+                st.subheader("Mục tiêu ~ 20")
+                show_detailed_results(20, c2)
