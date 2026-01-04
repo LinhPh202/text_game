@@ -2,19 +2,19 @@ import streamlit as st
 import math
 
 # --- CẤU HÌNH ---
-st.set_page_config(page_title="Math Solver: Top 10 Report", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Math Solver: Diagnostic", page_icon="🔧", layout="wide")
 
 # --- HÀM KIỂM TRA LOẠI THẺ ---
 def get_token_type(token):
     if isinstance(token, (int, float)): return "NUM"
-    if token in ['+', '-', '*', '/', '^']: return "BIN_OP"
+    if token in ['+', '-', '*', '/', '^']: return "BIN_OP" # Cầu nối
     if token == 'v': return "UNARY_PRE"
     if token == '!': return "UNARY_POST"
     if token == '(': return "OPEN"
     if token == ')': return "CLOSE"
     return "UNKNOWN"
 
-# --- THUẬT TOÁN QUAY LUI (BACKTRACKING) ---
+# --- THUẬT TOÁN QUAY LUI ---
 def solve_jigsaw(tokens, target_list, tolerance):
     solutions = []
     seen_expr = set()
@@ -23,18 +23,16 @@ def solve_jigsaw(tokens, target_list, tolerance):
         # 1. KẾT THÚC CHUỖI
         if not remaining_tokens:
             if balance == 0 and last_type in ["NUM", "CLOSE", "UNARY_POST"]:
-                
-                # Tạo chuỗi hiển thị
                 display_str = "".join([str(x) for x in current_expr_list])
-                
                 if display_str in seen_expr: return
                 seen_expr.add(display_str)
 
-                # Tạo chuỗi tính toán (Xử lý Python syntax)
                 try:
                     py_str = display_str.replace('^', '**')
                     py_str = py_str.replace('v', 'math.sqrt') 
-
+                    # Xử lý trường hợp người dùng nhập v(...)
+                    # Code này giả định cú pháp Python hợp lệ
+                    
                     val = eval(py_str)
                     
                     if isinstance(val, complex): return
@@ -42,24 +40,21 @@ def solve_jigsaw(tokens, target_list, tolerance):
                     for t in target_list:
                         diff = abs(val - t)
                         if diff <= tolerance:
-                            solutions.append({
-                                'val': val,
-                                'expr': display_str,
-                                'diff': diff,
-                                'target': t
-                            })
+                            solutions.append({'val': val, 'expr': display_str, 'diff': diff, 'target': t})
                 except:
                     return
             return
 
-        # 2. CHỌN THẺ TIẾP THEO
+        # 2. CHỌN THẺ
         unique_tokens = sorted(list(set(remaining_tokens)), key=str)
         
         for token in unique_tokens:
             t_type = get_token_type(token)
             is_valid = False
             
-            # CHECK NGỮ PHÁP
+            # RULE: Không cho phép ghép Số cạnh Số (3 5 -> Sai, phải là 35 hoặc 3*5)
+            # Ở đây ta mặc định không ghép số, bắt buộc phải có phép tính
+            
             if last_type == "START":
                 if t_type in ["NUM", "OPEN", "UNARY_PRE"]: is_valid = True
             elif last_type == "NUM":
@@ -71,7 +66,8 @@ def solve_jigsaw(tokens, target_list, tolerance):
             elif last_type == "CLOSE":
                 if t_type in ["BIN_OP", "CLOSE", "UNARY_POST"]: is_valid = True
             elif last_type == "UNARY_PRE": 
-                if t_type == "OPEN": is_valid = True 
+                if t_type == "OPEN": is_valid = True # Bắt v đi với (
+                if t_type == "NUM": is_valid = True  # Hoặc v đi với số (v5)
             elif last_type == "UNARY_POST":
                 if t_type in ["BIN_OP", "CLOSE"]: is_valid = True
 
@@ -82,111 +78,90 @@ def solve_jigsaw(tokens, target_list, tolerance):
                 new_tokens.remove(token)
                 new_balance = balance + 1 if t_type == "OPEN" else (balance - 1 if t_type == "CLOSE" else balance)
                 
+                # Heuristic: Cắt nhánh nếu không đủ token để đóng ngoặc
                 if len(new_tokens) < new_balance: continue
-
+                
                 backtrack(current_expr_list + [token], new_tokens, new_balance, t_type)
 
     backtrack([], tokens, 0, "START")
     return solutions
 
-# --- GIAO DIỆN CHÍNH ---
-st.title("📊 Báo Cáo Top 10 Phép Tính")
-st.markdown("""
-Hệ thống sẽ tìm kiếm và xuất ra **10 cách tính khác nhau** cho kết quả gần với mục tiêu nhất.
-""")
+# --- GIAO DIỆN ---
+st.title("🔧 Math Solver: Chẩn Đoán Lỗi")
+st.markdown("Công cụ này sẽ phân tích xem tại sao bạn không tìm ra kết quả.")
 
 with st.sidebar:
     st.header("Nhập liệu")
     nums_in = st.text_input("Các số", "3 5 2 8 1")
-    ops_in = st.text_input("Các phép tính", "( ) + / *")
-    st.caption("💡 Mẹo: Dùng `/` hoặc `v` để có nhiều kết quả thập phân đa dạng.")
+    ops_in = st.text_input("Các phép tính", "( ) + * /") 
+    # Mặc định để input gây lỗi để test
     
     st.divider()
-    tolerance = st.slider("Sai số tối đa (+/-)", 0.0, 10.0, 2.0, 0.1)
-    run_btn = st.button("🚀 Tạo Report", type="primary")
+    tolerance = st.slider("Sai số (+/-)", 0.0, 10.0, 2.0, 0.1)
+    run_btn = st.button("🚀 Chạy & Phân Tích", type="primary")
 
 if run_btn:
-    # Xử lý input
     clean_nums = nums_in.replace(',', ' ').split()
     nums = [int(x) if float(x).is_integer() else float(x) for x in clean_nums]
     clean_ops = ops_in.replace(',', ' ').split()
     ops = [x.strip() for x in clean_ops]
     tokens = nums + ops
     
-    st.write(f"🧩 **Các mảnh ghép:** `{tokens}`")
-
-    with st.spinner("Đang phân tích hàng nghìn trường hợp..."):
-        all_results = solve_jigsaw(tokens, [1, 20], tolerance)
+    # --- PHÂN TÍCH LOGIC TOÁN HỌC (DIAGNOSTIC) ---
+    num_count = len(nums)
+    bin_op_count = sum(1 for op in ops if op in ['+', '-', '*', '/', '^'])
+    unary_count = sum(1 for op in ops if op in ['v', '!'])
+    bracket_count = sum(1 for op in ops if op in ['(', ')'])
+    
+    required_bridges = num_count - 1
+    
+    st.subheader("🔍 Phân tích Input của bạn:")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Số lượng Số (Hòn đảo)", num_count)
+    col2.metric("Phép nối (Cây cầu)", bin_op_count)
+    col3.metric("Ngoặc/Khác", bracket_count + unary_count)
+    
+    # LOGIC CHECK
+    if bin_op_count < required_bridges:
+        st.error(f"""
+        ❌ **LỖI THIẾU PHÉP TÍNH KẾT NỐI!**
         
-        if not all_results:
-            st.error("Không tìm thấy phép tính nào trong khoảng sai số này.")
-        else:
-            c1, c2 = st.columns(2)
+        Bạn có **{num_count} con số**, để nối tất cả chúng lại thành 1 chuỗi liên tục, bạn cần tối thiểu **{required_bridges} phép tính 2 ngôi** (`+ - * / ^`).
+        
+        Hiện tại bạn chỉ cung cấp **{bin_op_count} phép tính**.
+        (Các dấu `(` `)` `v` `!` không giúp nối 2 số với nhau).
+        
+        👉 **Giải pháp:** Hãy thêm {required_bridges - bin_op_count} phép tính nữa vào ô nhập liệu (ví dụ thêm dấu `+` hoặc `*`).
+        """)
+    else:
+        st.success("✅ Số lượng phép tính đủ điều kiện toán học. Đang tìm kiếm...")
+        
+        with st.spinner("Đang xử lý..."):
+            all_results = solve_jigsaw(tokens, [1, 20], tolerance)
             
-            # --- HÀM HIỂN THỊ REPORT TOP 10 ---
-            def show_top_10_report(target, container):
-                # 1. Lọc theo target
-                subset = [r for r in all_results if r['target'] == target]
-                
-                # 2. Sắp xếp theo độ lệch (gần 0 nhất lên đầu)
-                subset.sort(key=lambda x: x['diff'])
-                
-                # 3. Lọc trùng lặp biểu thức (Giữ lại 10 cái expression khác nhau nhất)
-                unique_report = []
-                seen_exprs = set()
-                
-                for item in subset:
-                    if item['expr'] not in seen_exprs:
-                        unique_report.append(item)
-                        seen_exprs.add(item['expr'])
-                    if len(unique_report) >= 10: # Chỉ lấy 10
-                        break
-                
-                # 4. Hiển thị
-                container.subheader(f"🎯 Mục tiêu: {target}")
-                
-                if not unique_report:
-                    container.warning("Không tìm thấy dữ liệu.")
-                    return
-
-                for i, item in enumerate(unique_report):
-                    rank = i + 1
-                    val = item['val']
-                    diff = item['diff']
-                    expr = item['expr']
+            if not all_results:
+                st.warning("Vẫn không tìm thấy kết quả phù hợp. Có thể các số này không thể tạo ra kết quả mong muốn với các phép tính đã cho.")
+            else:
+                # HIỂN THỊ KẾT QUẢ (TOP 10)
+                st.divider()
+                def show_report(target, container):
+                    subset = [r for r in all_results if r['target'] == target]
+                    subset.sort(key=lambda x: x['diff'])
                     
-                    # Màu sắc: Top 3 màu xanh đậm, còn lại màu thường
-                    if rank <= 3:
-                        card_color = "#e8f5e9" # Xanh nhạt
-                        border_color = "#2e7d32" # Xanh đậm
-                        icon = "🏆"
-                    else:
-                        card_color = "#f8f9fa" # Xám trắng
-                        border_color = "#dee2e6" # Xám
-                        icon = f"#{rank}"
+                    unique_report = []
+                    seen = set()
+                    for item in subset:
+                        if item['expr'] not in seen:
+                            unique_report.append(item)
+                            seen.add(item['expr'])
+                        if len(unique_report) >= 5: break
+                    
+                    container.caption(f"Mục tiêu: {target}")
+                    if not unique_report:
+                        container.info("Không có dữ liệu.")
+                    for item in unique_report:
+                        container.success(f"{item['expr']} = {item['val']:.4f}")
 
-                    # Hiển thị từng dòng
-                    container.markdown(f"""
-                    <div style="
-                        background-color: {card_color}; 
-                        border-left: 5px solid {border_color};
-                        padding: 10px; 
-                        margin-bottom: 8px;
-                        border-radius: 4px;
-                    ">
-                        <div style="display: flex; justify_content: space-between; align-items: center;">
-                            <span style="font-weight: bold; color: #555; font-size: 0.9em;">{icon}</span>
-                            <code style="font-size: 1.1em; color: #000; font-weight: bold;">{expr}</code>
-                        </div>
-                        <div style="display: flex; justify_content: space-between; align-items: center; margin-top: 5px;">
-                            <span style="color: {border_color}; font-weight: bold; font-size: 1.1em;">= {val:.5f}</span>
-                            <span style="font-size: 0.8em; color: #666;">(Lệch: {diff:.5f})</span>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-            with c1:
-                show_top_10_report(1, c1)
-            
-            with c2:
-                show_top_10_report(20, c2)
+                c1, c2 = st.columns(2)
+                with c1: show_report(1, c1)
+                with c2: show_report(20, c2)
