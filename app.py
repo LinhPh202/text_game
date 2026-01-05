@@ -190,7 +190,7 @@ def solve_optimization(nums, ops, allow_brackets, mode):
     return best_results, best_val
 
 # --- 4. GIAO DIỆN UI ---
-st.title("🧮 Super Math Solver")
+st.title("🧮 Solver: Phương trình Quần Què - Chơi xong Xóa")
 
 # Menu chọn chế độ thông minh
 mode_label = st.radio(
