@@ -3,14 +3,58 @@ import math
 import itertools
 
 # Cấu hình trang
-st.set_page_config(page_title="Ultimate Math Solver", page_icon="🧮")
+st.set_page_config(page_title="Smart Math Solver", page_icon="🧠")
 
-# --- 1. CORE: HÀM TÍNH TOÁN ---
+# --- 1. HÀM TIỆN ÍCH (FORMAT & NORMALIZE) ---
+
+def format_val(n):
+    """
+    Định dạng số:
+    - Nếu là số nguyên (ví dụ 5.0) -> Trả về "5"
+    - Nếu là số thực (ví dụ 5.5) -> Trả về "5.5"
+    """
+    if n is None: return "Error"
+    # Kiểm tra sai số cực nhỏ để xác định số nguyên
+    if abs(n - round(n)) < 1e-9:
+        return str(int(round(n)))
+    else:
+        # Làm tròn 5 chữ số thập phân, bỏ số 0 thừa ở cuối
+        return f"{n:.5f}".rstrip('0').rstrip('.')
+
+def normalize_op(op_input):
+    """
+    Chẩn hóa các ký tự phép tính người dùng nhập về chuẩn Python
+    """
+    op = op_input.strip().lower()
+    
+    # Từ điển ánh xạ (Mapping)
+    mapping = {
+        # Cộng
+        '+': '+', '＋': '+',
+        # Trừ (Dấu gạch ngang, dấu trừ toán học)
+        '-': '-', '−': '-', '–': '-',
+        # Nhân
+        '*': '*', '×': '*', 'x': '*', '.': '*',
+        # Chia
+        '/': '/', '÷': '/', ':': '/',
+        # Mũ
+        '^': '^',
+        # Căn bậc 2
+        'sqrt': 'sqrt', '√': 'sqrt',
+        # Giai thừa
+        '!': '!'
+    }
+    
+    return mapping.get(op, None) # Trả về None nếu không nhận diện được
+
+# --- 2. CORE: HÀM TÍNH TOÁN ---
+
 def safe_eval(expr):
-    """Tính toán an toàn, trả về None nếu lỗi"""
+    """Tính toán an toàn"""
     try:
-        if "**" in expr: # Check số mũ
+        if "**" in expr: 
             parts = expr.split("**")
+            # Chặn số mũ quá lớn
             if float(parts[1].split()[0].replace(')', '')) > 6: return None
             
         val = eval(expr, {"__builtins__": None}, {"sqrt": math.sqrt, "factorial": math.factorial})
@@ -32,26 +76,24 @@ def apply_unary(val, op):
     except: return None
     return None
 
-# --- 2. CORE: BỘ SINH BIỂU THỨC (GENERATOR) ---
+# --- 3. CORE: BỘ SINH BIỂU THỨC ---
+
 def generate_expressions(nums, ops, allow_brackets):
     """
-    Hàm sinh tất cả các biểu thức hợp lệ.
-    Dùng 'yield' để tiết kiệm bộ nhớ thay vì lưu list khổng lồ.
+    Sinh tất cả biểu thức hợp lệ
     """
     binary_ops_pool = [op for op in ops if op in ['+', '-', '*', '/', '^']]
     unary_ops_pool = [op for op in ops if op in ['sqrt', '!']]
     
-    # Validation
     if len(binary_ops_pool) != len(nums) - 1:
         return "ERROR_COUNT"
 
-    # Chuẩn bị hoán vị
     u_pool_full = unary_ops_pool + [None] * (len(nums) - len(unary_ops_pool))
     unary_perms = set(itertools.permutations(u_pool_full))
 
-    # Loop: Hoán vị Số
+    # Loop Hoán vị Số
     for num_perm in itertools.permutations(nums):
-        # Loop: Hoán vị Unary (Căn, Giai thừa)
+        # Loop Hoán vị Unary
         for u_perm in unary_perms:
             terms_vals = []
             terms_strs = []
@@ -59,26 +101,36 @@ def generate_expressions(nums, ops, allow_brackets):
             
             for i, n in enumerate(num_perm):
                 u_op = u_perm[i]
+                
+                # --- SỬ DỤNG FORMAT_VAL ĐỂ HIỂN THỊ ĐẸP (VD: sqrt(4) thay vì sqrt(4.0)) ---
+                n_fmt = format_val(n) 
+                
                 if u_op:
                     val = apply_unary(n, u_op)
                     if val is None: valid_term = False; break
                     terms_vals.append(val)
-                    if u_op == 'sqrt': terms_strs.append(f"sqrt({n})")
-                    else: terms_strs.append(f"{n}!")
+                    if u_op == 'sqrt': terms_strs.append(f"sqrt({n_fmt})") # √
+                    else: terms_strs.append(f"{n_fmt}!") # !
                 else:
                     terms_vals.append(n)
-                    terms_strs.append(str(n))
+                    terms_strs.append(n_fmt)
             
             if not valid_term: continue
 
-            # Loop: Hoán vị Binary (+, -, *, /)
+            # Loop Hoán vị Binary
             for b_perm in set(itertools.permutations(binary_ops_pool)):
                 base_components = []
                 for i in range(len(b_perm)):
                     base_components.append((terms_strs[i], terms_vals[i]))
                     op_symbol = b_perm[i]
+                    
+                    # Hiển thị đẹp cho dấu nhân/chia/căn
+                    display_sym = op_symbol
+                    if op_symbol == '*': display_sym = '×'
+                    if op_symbol == '/': display_sym = '÷'
+                    
                     py_op = "**" if op_symbol == '^' else op_symbol
-                    base_components.append((op_symbol, py_op))
+                    base_components.append((display_sym, py_op))
                 base_components.append((terms_strs[-1], terms_vals[-1]))
                 
                 # Logic Ngoặc
@@ -90,13 +142,13 @@ def generate_expressions(nums, ops, allow_brackets):
                             if i == 0 and j == n_terms - 1: continue
                             bracket_configs.append((i, j))
 
-                # Tính toán cuối cùng
+                # Tính toán
                 for cfg in bracket_configs:
                     py_parts = []
                     disp_parts = []
                     term_idx = 0
                     for k, comp in enumerate(base_components):
-                        if k % 2 == 0:
+                        if k % 2 == 0: # Số
                             t_str, t_val = comp
                             if cfg and term_idx == cfg[0]:
                                 py_parts.append("(")
@@ -107,10 +159,10 @@ def generate_expressions(nums, ops, allow_brackets):
                                 py_parts.append(")")
                                 disp_parts.append(")")
                             term_idx += 1
-                        else:
-                            op_sym, op_py = comp
-                            py_parts.append(op_py)
-                            disp_parts.append(op_sym)
+                        else: # Dấu
+                            disp_sym, py_sym = comp
+                            py_parts.append(py_sym)
+                            disp_parts.append(disp_sym)
                     
                     full_py = "".join(py_parts)
                     full_disp = "".join(disp_parts)
@@ -119,10 +171,9 @@ def generate_expressions(nums, ops, allow_brackets):
                     if final_val is not None:
                         yield final_val, full_disp
 
-# --- 3. CÁC HÀM GIẢI ---
+# --- 4. HÀM GIẢI (SOLVERS) ---
 
 def solve_target_search(nums, ops, allow_brackets, targets, max_tolerance):
-    """Chế độ 1: Tìm theo Target"""
     results = []
     seen_exprs = set()
     gen = generate_expressions(nums, ops, allow_brackets)
@@ -142,15 +193,8 @@ def solve_target_search(nums, ops, allow_brackets, targets, max_tolerance):
     return results
 
 def solve_optimization(nums, ops, allow_brackets, mode):
-    """
-    Chế độ 2, 3, 4: Tìm Min/Max theo điều kiện
-    mode: 'global_min', 'min_positive', 'max_negative'
-    """
-    # Khởi tạo giá trị kỷ lục (Record)
-    if mode == 'max_negative':
-        best_val = float('-inf') # Tìm max nên khởi đầu bằng âm vô cùng
-    else:
-        best_val = float('inf') # Tìm min nên khởi đầu bằng dương vô cùng
+    if mode == 'max_negative': best_val = float('-inf')
+    else: best_val = float('inf')
 
     best_results = []
     seen_exprs = set()
@@ -159,25 +203,19 @@ def solve_optimization(nums, ops, allow_brackets, mode):
     if gen == "ERROR_COUNT": return "ERROR_COUNT"
     
     for val, expr in gen:
-        # Chỉ xét số NGUYÊN
+        # Check số nguyên
         if abs(val - round(val)) < 1e-9:
             int_val = int(round(val))
             
-            # --- BỘ LỌC ĐIỀU KIỆN ---
             if mode == 'min_positive' and int_val <= 0: continue
             if mode == 'max_negative' and int_val >= 0: continue
             
-            # --- SO SÁNH KỶ LỤC ---
             update_record = False
-            
             if mode == 'max_negative':
-                # Tìm âm lớn nhất (gần 0 nhất): Ví dụ -1 lớn hơn -100
                 if int_val > best_val: update_record = True
             else:
-                # Tìm min (Global hoặc Positive): Ví dụ 1 nhỏ hơn 10
                 if int_val < best_val: update_record = True
             
-            # Cập nhật danh sách kết quả
             if update_record:
                 best_val = int_val
                 best_results = [{'val': int_val, 'expr': expr}]
@@ -189,12 +227,11 @@ def solve_optimization(nums, ops, allow_brackets, mode):
                     
     return best_results, best_val
 
-# --- 4. GIAO DIỆN UI ---
-st.title("🧮 Solver: Phương trình Quần Què - Chơi xong Xóa")
+# --- 5. GIAO DIỆN (UI) ---
+st.title("🧠 Smart Math Solver")
 
-# Menu chọn chế độ thông minh
 mode_label = st.radio(
-    "👉 Chọn mục tiêu bài toán:",
+    "👉 Chọn mục tiêu:",
     [
         "🎯 Tìm theo Đích (Target)", 
         "📉 Tìm số nguyên Bé nhất (Global Min)",
@@ -203,7 +240,6 @@ mode_label = st.radio(
     ]
 )
 
-# Map label sang key code
 mode_map = {
     "🎯 Tìm theo Đích (Target)": "target",
     "📉 Tìm số nguyên Bé nhất (Global Min)": "global_min",
@@ -214,45 +250,62 @@ current_mode = mode_map[mode_label]
 
 st.write("---")
 
-# Input Area
 with st.container():
     col1, col2 = st.columns(2)
     with col1:
-        input_nums = st.text_input("1. Nhập các số:", "5, 5, 5, 5")
+        input_nums = st.text_input("1. Nhập số:", "5, 5, 5, 5")
     with col2:
-        input_ops = st.text_input("2. Nhập phép tính:", "+, -, *")
-        st.caption("Ví dụ: `+, -, *, /, ^, sqrt, !`")
+        # Hướng dẫn thông minh
+        input_ops_raw = st.text_input("2. Nhập phép tính:", "+, −, ×, ÷, √, ()")
+        st.caption("Hỗ trợ: `+, -, *, /, sqrt, !` và cả `×, ÷, −, √`")
+
+    # --- LOGIC TỰ ĐỘNG PHÁT HIỆN NGOẶC ---
+    # Kiểm tra xem người dùng có nhập ký tự ngoặc không
+    auto_bracket_detected = any(c in input_ops_raw for c in ['(', ')'])
+    
+    if auto_bracket_detected:
+        allow_bracket = True
+        st.info("💡 Đã phát hiện ký tự `()` trong ô phép tính -> **Tự động BẬT chế độ Ngoặc**.")
+    else:
+        # Nếu không nhập ngoặc thì hiện checkbox cho chọn thủ công
+        allow_bracket = st.checkbox("✅ Cho phép dùng Ngoặc (1 cặp)", value=False)
 
     col3, col4 = st.columns(2)
     with col3:
-        # Chỉ hiện ô Target khi ở chế độ Target
         is_disabled = (current_mode != "target")
-        input_targets = st.text_input(
-            "3. Nhập Target:", 
-            "24", 
-            disabled=is_disabled,
-            help="Chỉ dùng cho chế độ tìm đích"
-        )
+        input_targets = st.text_input("3. Nhập Target:", "24", disabled=is_disabled)
     with col4:
         if not is_disabled:
             max_tol = st.slider("4. Phạm vi sai số:", 0.0, 10.0, 2.0, 0.1)
-        else:
-            st.info("Chế độ Tự động sẽ tìm số nguyên tối ưu.")
 
-allow_bracket = st.checkbox("✅ Cho phép dùng Ngoặc (1 cặp)", value=False)
-
-# Nút Action
 if st.button("🚀 Giải bài toán"):
     try:
+        # Parse Số
         nums = [float(x.strip()) for x in input_nums.split(',') if x.strip() != '']
-        ops = [x.strip().lower() for x in input_ops.split(',') if x.strip() != '']
         
+        # --- PARSE PHÉP TÍNH THÔNG MINH ---
+        # 1. Loại bỏ ngoặc khỏi chuỗi để tách phép tính (vì ngoặc đã được xử lý bằng biến allow_bracket)
+        clean_ops_str = input_ops_raw.replace('(', '').replace(')', '')
+        
+        # 2. Tách và Chuẩn hóa từng phép tính
+        raw_list = [x for x in clean_ops_str.split(',') if x.strip() != '']
+        ops = []
+        unknown_ops = []
+        
+        for x in raw_list:
+            norm = normalize_op(x)
+            if norm:
+                ops.append(norm)
+            else:
+                unknown_ops.append(x)
+        
+        if unknown_ops:
+            st.warning(f"⚠️ Không nhận diện được các ký tự: {', '.join(unknown_ops)}. Đã bỏ qua.")
+
         if len(nums) > 6:
             st.error("⚠️ Quá nhiều số! Hãy nhập tối đa 5-6 số.")
         else:
-            # === XỬ LÝ THEO CHẾ ĐỘ ===
-            
-            # 1. Chế độ TARGET
+            # === CHẾ ĐỘ TARGET ===
             if current_mode == "target":
                 target_list = [float(x.strip()) for x in input_targets.split(',') if x.strip() != '']
                 target_list.sort()
@@ -260,22 +313,21 @@ if st.button("🚀 Giải bài toán"):
                 if not target_list:
                     st.error("Vui lòng nhập Target.")
                 else:
-                    with st.spinner('Đang tìm kiếm...'):
-                        res = solve_target_search(nums, ops, allow_brackets=allow_bracket, targets=target_list, max_tolerance=max_tol)
+                    with st.spinner('Đang tính toán...'):
+                        res = solve_target_search(nums, ops, allow_bracket, target_list, max_tol)
                         
                         if res == "ERROR_COUNT":
-                            st.error("❌ Lỗi: Số lượng phép tính không khớp.")
+                            st.error(f"❌ Lỗi: Bạn nhập {len(nums)} số nhưng chỉ có {len([o for o in ops if o in ['+','-','*','/','^']])} phép tính nối (cần {len(nums)-1}).")
                         else:
-                            # Hiển thị kết quả Target (như cũ)
                             r_map = {t: [] for t in target_list}
                             for r in res: r_map[r['target_matched']].append(r)
                             
-                            tabs = st.tabs([f"{'✅' if any(i['is_exact'] for i in r_map[t]) else ('⚠️' if r_map[t] else '❌')} {t}" for t in target_list])
+                            tabs = st.tabs([f"{'✅' if any(i['is_exact'] for i in r_map[t]) else ('⚠️' if r_map[t] else '❌')} {format_val(t)}" for t in target_list])
                             
                             for i, t in enumerate(target_list):
                                 with tabs[i]:
                                     dat = r_map[t]
-                                    if not dat: st.error(f"Không tìm thấy {t}")
+                                    if not dat: st.error(f"Không tìm thấy {format_val(t)}")
                                     else:
                                         dat.sort(key=lambda x: x['diff'])
                                         exacts = [x for x in dat if x['is_exact']]
@@ -283,45 +335,38 @@ if st.button("🚀 Giải bài toán"):
                                         
                                         if exacts:
                                             st.success(f"🎉 CHÍNH XÁC")
-                                            for e in exacts[:10]: st.code(f"{e['expr']} = {t}")
+                                            # Dùng format_val cho kết quả hiển thị
+                                            for e in exacts[:10]: st.code(f"{e['expr']} = {format_val(t)}")
                                         
                                         if approxs:
                                             if exacts: 
                                                 with st.expander("Kết quả gần đúng"):
-                                                    for a in approxs[:5]: st.code(f"{a['expr']} = {a['val']:.5f}")
+                                                    for a in approxs[:5]: st.code(f"{a['expr']} = {format_val(a['val'])}")
                                             else:
                                                 st.warning("⚠️ GẦN ĐÚNG")
                                                 for a in approxs[:5]: 
-                                                    st.write(f"Sai số: {a['diff']:.5f}")
-                                                    st.code(f"{a['expr']} = {a['val']:.5f}")
+                                                    st.write(f"Sai số: {format_val(a['diff'])}")
+                                                    st.code(f"{a['expr']} = {format_val(a['val'])}")
 
-            # 2. Chế độ TỐI ƯU (Global Min, Min Pos, Max Neg)
+            # === CHẾ ĐỘ OPTIMIZATION ===
             else:
-                msg_map = {
-                    "global_min": "Đang tìm số nguyên BÉ NHẤT toàn cục...",
-                    "min_positive": "Đang tìm số nguyên DƯƠNG (>0) bé nhất...",
-                    "max_negative": "Đang tìm số nguyên ÂM (<0) lớn nhất..."
+                title_map = {
+                    "global_min": "SỐ NGUYÊN BÉ NHẤT",
+                    "min_positive": "SỐ NGUYÊN DƯƠNG BÉ NHẤT",
+                    "max_negative": "SỐ NGUYÊN ÂM LỚN NHẤT"
                 }
-                
-                with st.spinner(msg_map[current_mode]):
+                with st.spinner('Đang tìm kiếm...'):
                     results, best_val = solve_optimization(nums, ops, allow_bracket, current_mode)
                     
                     if results == "ERROR_COUNT":
-                        st.error("❌ Lỗi: Số lượng phép tính không khớp.")
+                        st.error("❌ Lỗi: Số lượng phép tính nối không khớp.")
                     elif not results:
-                        st.warning("Không tìm thấy số nguyên nào thỏa mãn điều kiện này.")
+                        st.warning("Không tìm thấy số nguyên nào thỏa mãn.")
                     else:
-                        # Tiêu đề kết quả
-                        title_map = {
-                            "global_min": f"🏆 SỐ NGUYÊN BÉ NHẤT: {best_val}",
-                            "min_positive": f"🏆 SỐ NGUYÊN DƯƠNG BÉ NHẤT: {best_val}",
-                            "max_negative": f"🏆 SỐ NGUYÊN ÂM LỚN NHẤT (Gần 0 nhất): {best_val}"
-                        }
-                        st.success(title_map[current_mode])
-                        
-                        st.write(f"Tìm thấy **{len(results)}** cách tính:")
+                        st.success(f"🏆 {title_map[current_mode]}: {format_val(best_val)}")
+                        st.write(f"Tìm thấy **{len(results)}** cách:")
                         for r in results[:10]:
-                            st.code(f"{r['expr']} = {r['val']}")
+                            st.code(f"{r['expr']} = {format_val(r['val'])}")
 
     except Exception as e:
-        st.error(f"Lỗi hệ thống: {e}")
+        st.error(f"Lỗi nhập liệu: {e}")
