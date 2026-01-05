@@ -141,7 +141,7 @@ def solve_best_effort(nums, ops, allow_brackets, target, max_tolerance):
     return results
 
 # --- 3. GIAO DIỆN STREAMLIT ---
-st.title("🎯 Solver: Ưu tiên Chính xác")
+st.title("🎯 Solver: Phương Trình Quần Què")
 st.markdown("""
 - Máy sẽ tìm kết quả **Chính xác (Target)** trước.
 - Nếu không có, máy sẽ tự tìm kết quả **Sai số thấp nhất**.
