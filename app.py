@@ -3,7 +3,7 @@ import math
 import itertools
 
 # Cấu hình trang
-st.set_page_config(page_title="Solver: Phương Trình Quần Què", page_icon="🎯")
+st.set_page_config(page_title="Multi-Target Solver", page_icon="🎯")
 
 # --- 1. CÁC HÀM TÍNH TOÁN (CORE) ---
 def safe_eval(expr):
@@ -33,16 +33,16 @@ def apply_unary(val, op):
     except: return None
     return None
 
-# --- 2. THUẬT TOÁN GIẢI ---
-def solve_best_effort(nums, ops, allow_brackets, target, max_tolerance):
-    results = []
+# --- 2. THUẬT TOÁN GIẢI ĐA MỤC TIÊU ---
+def solve_multi_targets(nums, ops, allow_brackets, targets, max_tolerance):
+    results = [] # List chứa dict kết quả
     seen_exprs = set() 
     
     # Phân loại phép tính
     binary_ops_pool = [op for op in ops if op in ['+', '-', '*', '/', '^']]
     unary_ops_pool = [op for op in ops if op in ['sqrt', '!']]
     
-    # CHECK LOGIC SỐ LƯỢNG: N số cần N-1 phép nối
+    # CHECK SỐ LƯỢNG: N số cần N-1 phép nối
     if len(binary_ops_pool) != len(nums) - 1:
         return "ERROR_COUNT"
 
@@ -124,28 +124,30 @@ def solve_best_effort(nums, ops, allow_brackets, target, max_tolerance):
                     final_val = safe_eval(full_py)
                     
                     if final_val is not None:
-                        # LOGIC MỚI: Tính độ lệch
-                        diff = abs(final_val - target)
-                        
-                        # Chỉ lưu nếu nằm trong sai số cho phép (để tối ưu bộ nhớ)
-                        if diff <= max_tolerance:
-                            if full_disp not in seen_exprs:
-                                results.append({
-                                    'val': final_val, 
-                                    'expr': full_disp, 
-                                    'diff': diff,
-                                    'is_exact': diff < 1e-9 # Đánh dấu chính xác
-                                })
-                                seen_exprs.add(full_disp)
+                        # --- LOGIC ĐA MỤC TIÊU ---
+                        # Kiểm tra kết quả này với TỪNG target trong danh sách
+                        for t in targets:
+                            diff = abs(final_val - t)
+                            
+                            if diff <= max_tolerance:
+                                # Key để lọc trùng phải bao gồm cả Target (vì 1 biểu thức có thể gần nhiều target)
+                                unique_key = f"{full_disp}_{t}"
+                                
+                                if unique_key not in seen_exprs:
+                                    results.append({
+                                        'val': final_val, 
+                                        'expr': full_disp, 
+                                        'diff': diff,
+                                        'target_matched': t, # Lưu lại nó khớp với Target nào
+                                        'is_exact': diff < 1e-9
+                                    })
+                                    seen_exprs.add(unique_key)
                                 
     return results
 
 # --- 3. GIAO DIỆN STREAMLIT ---
-st.title("🎯 Solver: Phương Trình Quần Què")
-st.markdown("""
-- Máy sẽ tìm kết quả **Chính xác (Target)** trước.
-- Nếu không có, máy sẽ tự tìm kết quả **Sai số thấp nhất**.
-""")
+st.title("🎯 Solver: Phương trình Quần Què")
+st.markdown("Tìm công thức cho nhiều con số đích cùng lúc.")
 
 # Input
 with st.container():
@@ -156,58 +158,72 @@ with st.container():
         input_ops = st.text_input("2. Nhập phép tính:", "+, -, *")
         st.caption("Ví dụ: `+, -, *, /, ^, sqrt, !`")
 
-    col3, col4 = st.columns(2)
-    with col3:
-        target_val = st.number_input("3. Đích (Target):", value=24.0, step=1.0)
-    with col4:
-        # Cho phép người dùng chỉnh sai số tối đa chấp nhận được để tìm kiếm
-        max_tol = st.slider("Phạm vi tìm sai số (Backup):", 0.0, 10.0, 5.0, 0.1)
+    # Input Multi-Target
+    input_targets = st.text_input("3. Nhập các Đích (Target) cần tìm (cách nhau dấu phẩy):", "1, 20, 24, 100")
+    
+    max_tol = st.slider("Phạm vi tìm sai số (Backup):", 0.0, 10.0, 2.0, 0.1)
 
-st.write("---")
 allow_bracket = st.checkbox("✅ Cho phép dùng Ngoặc (Tối đa 1 cặp)", value=False)
 
-if st.button("🚀 Giải bài toán"):
+if st.button("🚀 Quét tất cả Target"):
     try:
         nums = [float(x.strip()) for x in input_nums.split(',') if x.strip() != '']
         ops = [x.strip().lower() for x in input_ops.split(',') if x.strip() != '']
         
+        # Parse Targets
+        target_list = [float(x.strip()) for x in input_targets.split(',') if x.strip() != '']
+        
         if len(nums) > 6:
             st.error("⚠️ Quá nhiều số! Hãy nhập tối đa 5-6 số.")
+        elif len(target_list) == 0:
+            st.error("⚠️ Vui lòng nhập ít nhất 1 Target.")
         else:
-            with st.spinner(f'Đang tìm cách tạo ra {target_val}...'):
-                # Tìm tất cả kết quả trong phạm vi sai số
-                results = solve_best_effort(nums, ops, allow_bracket, target_val, max_tol)
+            with st.spinner(f'Đang tính toán cho {len(target_list)} đích đến...'):
                 
-                if results == "ERROR_COUNT":
+                # Gọi hàm giải Đa mục tiêu
+                all_results = solve_multi_targets(nums, ops, allow_bracket, target_list, max_tol)
+                
+                if all_results == "ERROR_COUNT":
                     bin_ops = [op for op in ops if op in ['+', '-', '*', '/', '^']]
-                    st.error(f"❌ Lỗi: Có {len(nums)} số thì cần đúng {len(nums)-1} phép nối (+, -, *, /, ^). Bạn nhập {len(bin_ops)}.")
+                    st.error(f"❌ Lỗi: Có {len(nums)} số thì cần đúng {len(nums)-1} phép nối (+, -, *, /, ^).")
                 
-                elif not results:
-                    st.warning(f"Không tìm thấy bất kỳ kết quả nào trong phạm vi sai số +/- {max_tol}.")
+                elif not all_results:
+                    st.warning("Không tìm thấy kết quả nào phù hợp.")
                 
                 else:
-                    # Sắp xếp kết quả: Ưu tiên sai số thấp nhất (diff tăng dần)
-                    results.sort(key=lambda x: x['diff'])
+                    # GIAO DIỆN TAB: Tạo Tab cho mỗi Target
+                    # Sắp xếp target list để hiển thị tab theo thứ tự tăng dần
+                    target_list.sort()
                     
-                    # Tách nhóm Chính xác
-                    exact_matches = [r for r in results if r['is_exact']]
+                    # Tạo tên cho các Tab
+                    tab_names = [f"Đích {t}" for t in target_list]
+                    tabs = st.tabs(tab_names)
                     
-                    # LOGIC HIỂN THỊ THÔNG MINH
-                    if exact_matches:
-                        st.success(f"🎉 Tuyệt vời! Tìm thấy {len(exact_matches)} kết quả CHÍNH XÁC!")
-                        for i, s in enumerate(exact_matches[:10], 1): # Chỉ hiện 10 cái đầu
-                            st.code(f"{s['expr']} = {target_val}")
-                    else:
-                        st.warning(f"⚠️ Không có kết quả chính xác tuyệt đối.")
-                        st.info(f"👉 Dưới đây là top 5 kết quả GẦN ĐÚNG nhất (Sai số nhỏ nhất):")
-                        
-                        count = 0
-                        for s in results:
-                            # Bỏ qua nếu diff quá lớn (giữ lại logic top best)
-                            st.write(f"**Sai số: {s['diff']:.5f}**")
-                            st.code(f"{s['expr']} = {s['val']:.5f}")
-                            count += 1
-                            if count >= 5: break # Chỉ lấy top 5 sai số
+                    # Duyệt qua từng tab và lọc dữ liệu tương ứng
+                    for i, t in enumerate(target_list):
+                        with tabs[i]:
+                            # Lọc kết quả thuộc về Target t
+                            t_results = [r for r in all_results if r['target_matched'] == t]
+                            
+                            if not t_results:
+                                st.write(f"❌ Không tìm thấy công thức nào gần **{t}** (trong phạm vi +/- {max_tol}).")
+                            else:
+                                # Sắp xếp theo độ lệch (diff)
+                                t_results.sort(key=lambda x: x['diff'])
+                                
+                                # Tách nhóm chính xác
+                                exacts = [r for r in t_results if r['is_exact']]
+                                
+                                if exacts:
+                                    st.success(f"🎉 Có {len(exacts)} công thức **CHÍNH XÁC** bằng {t}!")
+                                    for ex in exacts[:10]:
+                                        st.code(f"{ex['expr']} = {t}")
+                                else:
+                                    st.warning(f"⚠️ Không có kết quả chính xác cho {t}.")
+                                    st.info("Các kết quả **GẦN ĐÚNG** nhất:")
+                                    for near in t_results[:5]: # Top 5 gần nhất
+                                        st.write(f"- Sai số: **{near['diff']:.5f}**")
+                                        st.code(f"{near['expr']} = {near['val']:.5f}")
 
     except Exception as e:
         st.error(f"Lỗi nhập liệu: {e}")
