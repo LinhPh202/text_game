@@ -3,7 +3,7 @@ import math
 import itertools
 
 # Cấu hình trang
-st.set_page_config(page_title="Multi-Target Solver", page_icon="🎯")
+st.set_page_config(page_title="Solver: Chính xác hoặc Không", page_icon="🎯")
 
 # --- 1. CÁC HÀM TÍNH TOÁN (CORE) ---
 def safe_eval(expr):
@@ -33,8 +33,8 @@ def apply_unary(val, op):
     except: return None
     return None
 
-# --- 2. THUẬT TOÁN GIẢI ĐA MỤC TIÊU ---
-def solve_multi_targets(nums, ops, allow_brackets, targets, max_tolerance):
+# --- 2. THUẬT TOÁN GIẢI (CHỈ TÌM CHÍNH XÁC) ---
+def solve_strict_targets(nums, ops, allow_brackets, targets):
     results = [] 
     seen_exprs = set() 
     
@@ -124,27 +124,24 @@ def solve_multi_targets(nums, ops, allow_brackets, targets, max_tolerance):
                     final_val = safe_eval(full_py)
                     
                     if final_val is not None:
-                        # So khớp với từng Target
+                        # --- LOGIC STRICT: CHỈ LẤY CHÍNH XÁC ---
                         for t in targets:
-                            diff = abs(final_val - t)
-                            
-                            if diff <= max_tolerance:
+                            # So sánh số thực với độ lệch cực nhỏ (coi như bằng 0)
+                            if abs(final_val - t) < 1e-9:
                                 unique_key = f"{full_disp}_{t}"
                                 if unique_key not in seen_exprs:
                                     results.append({
                                         'val': final_val, 
                                         'expr': full_disp, 
-                                        'diff': diff,
-                                        'target_matched': t,
-                                        'is_exact': diff < 1e-9
+                                        'target_matched': t
                                     })
                                     seen_exprs.add(unique_key)
                                 
     return results
 
 # --- 3. GIAO DIỆN STREAMLIT ---
-st.title("🎯 Solver: Phương trình Quần Què")
-st.markdown("Nhập nhiều Đích. Nếu tìm ra chính xác, kết quả sẽ được **Highlight Xanh Lá**.")
+st.title("🎯 Solver: Phương trình Quần què")
+st.markdown("Chỉ hiển thị kết quả **CHÍNH XÁC**. Nếu không có sẽ báo lỗi.")
 
 # Input
 with st.container():
@@ -156,84 +153,58 @@ with st.container():
         st.caption("Ví dụ: `+, -, *, /, ^, sqrt, !`")
 
     input_targets = st.text_input("3. Nhập các Đích (Target):", "1, 20, 24, 100")
-    max_tol = st.slider("Phạm vi tìm sai số (Backup):", 0.0, 10.0, 2.0, 0.1)
-
+    
 allow_bracket = st.checkbox("✅ Cho phép dùng Ngoặc (Tối đa 1 cặp)", value=False)
 
-if st.button("🚀 Quét tất cả Target"):
+if st.button("🚀 Quét chính xác"):
     try:
         nums = [float(x.strip()) for x in input_nums.split(',') if x.strip() != '']
         ops = [x.strip().lower() for x in input_ops.split(',') if x.strip() != '']
         target_list = [float(x.strip()) for x in input_targets.split(',') if x.strip() != '']
-        target_list.sort() # Sắp xếp để hiển thị cho đẹp
+        target_list.sort() 
         
         if len(nums) > 6:
             st.error("⚠️ Quá nhiều số! Hãy nhập tối đa 5-6 số.")
         elif len(target_list) == 0:
             st.error("⚠️ Vui lòng nhập ít nhất 1 Target.")
         else:
-            with st.spinner(f'Đang tính toán...'):
-                all_results = solve_multi_targets(nums, ops, allow_bracket, target_list, max_tol)
+            with st.spinner(f'Đang tìm kiếm chính xác...'):
+                
+                # Gọi hàm Strict
+                all_results = solve_strict_targets(nums, ops, allow_bracket, target_list)
                 
                 if all_results == "ERROR_COUNT":
                     st.error(f"❌ Lỗi: Số lượng phép tính 2 ngôi không khớp với số lượng con số.")
-                elif not all_results:
-                    st.warning("Không tìm thấy kết quả nào phù hợp.")
                 else:
-                    # --- XỬ LÝ DỮ LIỆU ĐỂ TẠO TAB ---
-                    
-                    # 1. Gom nhóm kết quả theo Target
-                    # Dạng: {target_1: [list_results], target_2: [list_results]}
+                    # Gom nhóm kết quả
                     results_map = {t: [] for t in target_list}
                     for r in all_results:
                         results_map[r['target_matched']].append(r)
                     
-                    # 2. Tạo tên Tab dựa trên việc có đáp án chính xác hay không
+                    # Tạo tên Tab (✅ hoặc ❌)
                     tab_names = []
                     for t in target_list:
-                        # Kiểm tra xem target t có kết quả chính xác nào không
-                        has_exact = any(r['is_exact'] for r in results_map[t])
-                        
-                        if has_exact:
-                            tab_names.append(f"✅ {t} (Xong)") # Có dấu tích xanh
+                        if results_map[t]: # Có kết quả (list không rỗng)
+                            tab_names.append(f"✅ {t}")
                         else:
-                            tab_names.append(f"⚠️ {t} (Gần đúng)") # Dấu cảnh báo
+                            tab_names.append(f"❌ {t}")
                             
-                    # 3. Hiển thị Tabs
+                    # Hiển thị Tabs
                     tabs = st.tabs(tab_names)
                     
                     for i, t in enumerate(target_list):
                         with tabs[i]:
                             t_results = results_map[t]
                             
-                            if not t_results:
-                                st.write(f"Không có kết quả trong phạm vi +/- {max_tol}.")
+                            if t_results:
+                                # TRƯỜNG HỢP CÓ KẾT QUẢ -> XANH LÁ
+                                st.success(f"🎉 **Tìm thấy {len(t_results)} đáp án chính xác cho {t}**")
+                                for ex in t_results[:10]:
+                                    st.code(f"{ex['expr']} = {t}")
                             else:
-                                t_results.sort(key=lambda x: x['diff'])
-                                exacts = [r for r in t_results if r['is_exact']]
-                                approxs = [r for r in t_results if not r['is_exact']]
-                                
-                                # --- HIGHLIGHT XANH LÁ (CHỈ KHI CHÍNH XÁC) ---
-                                if exacts:
-                                    st.success(f"🎉 **ĐÁP ÁN CHÍNH XÁC CHO {t}**")
-                                    # Hiển thị các công thức chính xác trong khung xanh
-                                    for ex in exacts[:10]:
-                                        st.code(f"{ex['expr']} = {t}")
-                                        
-                                # --- KẾT QUẢ GẦN ĐÚNG (KHÔNG HIGHLIGHT XANH) ---
-                                if approxs:
-                                    # Nếu đã có exact thì dùng expander để ẩn bớt approx cho gọn
-                                    # Nếu chưa có exact thì hiện approx ra luôn
-                                    if exacts:
-                                        with st.expander("Xem thêm các kết quả gần đúng (Sai số)"):
-                                            for near in approxs[:5]:
-                                                st.write(f"Sai số: {near['diff']:.5f}")
-                                                st.code(f"{near['expr']} = {near['val']:.5f}")
-                                    else:
-                                        st.warning(f"⚠️ Không có đáp án chính xác. Đây là các phương án tốt nhất:")
-                                        for near in approxs[:5]:
-                                            st.write(f"Sai số: **{near['diff']:.5f}**")
-                                            st.code(f"{near['expr']} = {near['val']:.5f}")
+                                # TRƯỜNG HỢP KHÔNG CÓ -> ĐỎ
+                                st.error(f"⛔ Không tìm thấy phép tính nào ra chính xác {t}.")
+                                st.write("Không hiển thị kết quả gần đúng theo yêu cầu.")
 
     except Exception as e:
         st.error(f"Lỗi nhập liệu: {e}")
