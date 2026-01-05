@@ -3,22 +3,19 @@ import math
 import itertools
 
 # Cấu hình trang
-st.set_page_config(page_title="Solver: Bắn Trúng Đích", page_icon="🎯")
+st.set_page_config(page_title="Solver: Phương Trình Quần Què", page_icon="🎯")
 
 # --- 1. CÁC HÀM TÍNH TOÁN (CORE) ---
 def safe_eval(expr):
     """Tính toán biểu thức chuỗi an toàn"""
     try:
-        # Check số mũ để tránh treo máy
+        # Check số mũ quá lớn
         if "**" in expr:
             parts = expr.split("**")
-            # Nếu số mũ quá lớn (>6) thì bỏ qua
             if float(parts[1].split()[0].replace(')', '')) > 6: return None
             
-        # Eval với math library hỗ trợ sẵn
         val = eval(expr, {"__builtins__": None}, {"sqrt": math.sqrt, "factorial": math.factorial})
         
-        # Check lỗi toán học (vô cực, số phức)
         if isinstance(val, complex) or math.isinf(val) or math.isnan(val):
             return None
         return val
@@ -31,39 +28,33 @@ def apply_unary(val, op):
         if op == 'sqrt':
             return math.sqrt(val) if val >= 0 else None
         if op == '!':
-            # Chỉ tính giai thừa cho số dương, gần nguyên và <= 10
             if 0 <= val <= 10 and abs(val - round(val)) < 1e-9:
                 return math.factorial(int(round(val)))
     except: return None
     return None
 
-# --- 2. THUẬT TOÁN GIẢI (LINEAR PERMUTATION) ---
-def solve_exact_target(nums, ops, allow_brackets, target):
+# --- 2. THUẬT TOÁN GIẢI ---
+def solve_best_effort(nums, ops, allow_brackets, target, max_tolerance):
     results = []
-    seen_exprs = set() # Để lọc trùng
+    seen_exprs = set() 
     
     # Phân loại phép tính
     binary_ops_pool = [op for op in ops if op in ['+', '-', '*', '/', '^']]
     unary_ops_pool = [op for op in ops if op in ['sqrt', '!']]
     
-    # VALIDATION: Kiểm tra đủ phép tính nối
-    # N số cần N-1 phép nối
+    # CHECK LOGIC SỐ LƯỢNG: N số cần N-1 phép nối
     if len(binary_ops_pool) != len(nums) - 1:
         return "ERROR_COUNT"
 
-    # Chuẩn bị hoán vị phép Unary (gán vào các số)
-    # Tạo list gồm các Unary Ops và các slot None (không làm gì)
+    # Hoán vị phép Unary
     u_pool_full = unary_ops_pool + [None] * (len(nums) - len(unary_ops_pool))
     unary_perms = set(itertools.permutations(u_pool_full))
 
-    # --- VÒNG LẶP CHÍNH ---
-    # 1. Duyệt qua mọi cách sắp xếp các SỐ (Hoán vị số)
+    # VÒNG LẶP CHÍNH
     for num_perm in itertools.permutations(nums):
-        
-        # 2. Duyệt qua mọi cách gán phép UNARY vào số
         for u_perm in unary_perms:
             
-            # Tính giá trị từng số hạng sau khi Unary
+            # Tính giá trị các số hạng sau khi Unary
             terms_vals = []
             terms_strs = []
             valid_term = True
@@ -83,11 +74,10 @@ def solve_exact_target(nums, ops, allow_brackets, target):
             
             if not valid_term: continue
 
-            # 3. Duyệt qua mọi cách sắp xếp phép BINARY (Hoán vị phép tính)
+            # Hoán vị phép tính Binary
             for b_perm in set(itertools.permutations(binary_ops_pool)):
                 
-                # Tạo danh sách các thành phần (Component) theo thứ tự tuyến tính
-                # Dạng: [Số1, Dấu1, Số2, Dấu2, Số3...]
+                # Tạo component tuyến tính
                 base_components = []
                 for i in range(len(b_perm)):
                     base_components.append((terms_strs[i], terms_vals[i]))
@@ -96,43 +86,34 @@ def solve_exact_target(nums, ops, allow_brackets, target):
                     base_components.append((op_symbol, py_op))
                 base_components.append((terms_strs[-1], terms_vals[-1]))
                 
-                # 4. XỬ LÝ NGOẶC (Brackets)
-                bracket_configs = [None] # Mặc định: Không ngoặc
-                
+                # Xử lý Ngoặc
+                bracket_configs = [None]
                 if allow_brackets:
                     n_terms = len(terms_vals)
-                    # Thử đặt 1 cặp ngoặc vào các vị trí hợp lệ
                     for i in range(n_terms - 1):
                         for j in range(i + 1, n_terms):
-                            # Bỏ qua trường hợp bao toàn bộ (vô nghĩa)
                             if i == 0 and j == n_terms - 1: continue
                             bracket_configs.append((i, j))
 
-                # 5. TÍNH TOÁN & KIỂM TRA TARGET
+                # Tính toán
                 for cfg in bracket_configs:
                     py_parts = []
                     disp_parts = []
                     
                     term_idx = 0
                     for k, comp in enumerate(base_components):
-                        if k % 2 == 0: # Là SỐ
+                        if k % 2 == 0: # Số
                             t_str, t_val = comp
-                            
-                            # Mở ngoặc
                             if cfg and term_idx == cfg[0]:
                                 py_parts.append("(")
                                 disp_parts.append("(")
-                            
                             py_parts.append(str(t_val))
                             disp_parts.append(t_str)
-                            
-                            # Đóng ngoặc
                             if cfg and term_idx == cfg[1]:
                                 py_parts.append(")")
                                 disp_parts.append(")")
-                            
                             term_idx += 1
-                        else: # Là PHÉP TÍNH
+                        else: # Dấu
                             op_sym, op_py = comp
                             py_parts.append(op_py)
                             disp_parts.append(op_sym)
@@ -143,74 +124,90 @@ def solve_exact_target(nums, ops, allow_brackets, target):
                     final_val = safe_eval(full_py)
                     
                     if final_val is not None:
-                        # KIỂM TRA CHÍNH XÁC (Sai số cực nhỏ < 1e-9)
-                        if abs(final_val - target) < 1e-9:
+                        # LOGIC MỚI: Tính độ lệch
+                        diff = abs(final_val - target)
+                        
+                        # Chỉ lưu nếu nằm trong sai số cho phép (để tối ưu bộ nhớ)
+                        if diff <= max_tolerance:
                             if full_disp not in seen_exprs:
-                                results.append({'val': final_val, 'expr': full_disp})
+                                results.append({
+                                    'val': final_val, 
+                                    'expr': full_disp, 
+                                    'diff': diff,
+                                    'is_exact': diff < 1e-9 # Đánh dấu chính xác
+                                })
                                 seen_exprs.add(full_disp)
                                 
     return results
 
 # --- 3. GIAO DIỆN STREAMLIT ---
-st.title("🎯 Solver: Bắn Trúng Đích")
+st.title("🎯 Solver: Ưu tiên Chính xác")
 st.markdown("""
-Nhập số, phép tính và **Giá trị mục tiêu**. Máy sẽ tìm cách xếp hình để ra kết quả **chính xác**.
+- Máy sẽ tìm kết quả **Chính xác (Target)** trước.
+- Nếu không có, máy sẽ tự tìm kết quả **Sai số thấp nhất**.
 """)
 
-# Khu vực nhập liệu
+# Input
 with st.container():
-    col1, col2, col3 = st.columns([2, 2, 1])
+    col1, col2 = st.columns(2)
     with col1:
         input_nums = st.text_input("1. Nhập các số:", "5, 5, 5, 5")
     with col2:
         input_ops = st.text_input("2. Nhập phép tính:", "+, -, *")
         st.caption("Ví dụ: `+, -, *, /, ^, sqrt, !`")
+
+    col3, col4 = st.columns(2)
     with col3:
         target_val = st.number_input("3. Đích (Target):", value=24.0, step=1.0)
+    with col4:
+        # Cho phép người dùng chỉnh sai số tối đa chấp nhận được để tìm kiếm
+        max_tol = st.slider("Phạm vi tìm sai số (Backup):", 0.0, 10.0, 5.0, 0.1)
 
 st.write("---")
-allow_bracket = st.checkbox("✅ Cho phép dùng Ngoặc? (Tối đa 1 cặp)", value=False)
-if not allow_bracket:
-    st.caption("🔒 Chế độ tính thẳng tuột (Nhân chia trước, cộng trừ sau).")
-else:
-    st.caption("💡 Máy sẽ thử thêm việc đóng ngoặc cho 1 cụm phép tính.")
+allow_bracket = st.checkbox("✅ Cho phép dùng Ngoặc (Tối đa 1 cặp)", value=False)
 
-# Nút chạy
-if st.button("🚀 Tìm công thức"):
+if st.button("🚀 Giải bài toán"):
     try:
-        # Parse dữ liệu
         nums = [float(x.strip()) for x in input_nums.split(',') if x.strip() != '']
         ops = [x.strip().lower() for x in input_ops.split(',') if x.strip() != '']
         
-        # Cảnh báo hiệu năng
         if len(nums) > 6:
             st.error("⚠️ Quá nhiều số! Hãy nhập tối đa 5-6 số.")
         else:
-            with st.spinner(f'Đang tìm cách tạo ra số {target_val}...'):
-                # Gọi hàm giải
-                res = solve_exact_target(nums, ops, allow_bracket, target_val)
+            with st.spinner(f'Đang tìm cách tạo ra {target_val}...'):
+                # Tìm tất cả kết quả trong phạm vi sai số
+                results = solve_best_effort(nums, ops, allow_bracket, target_val, max_tol)
                 
-                if res == "ERROR_COUNT":
+                if results == "ERROR_COUNT":
                     bin_ops = [op for op in ops if op in ['+', '-', '*', '/', '^']]
-                    st.error(f"""
-                    ❌ **Lỗi Logic:**
-                    Bạn có **{len(nums)} số** thì cần đúng **{len(nums)-1} phép nối** (+, -, *, /, ^).
-                    Bạn đang nhập: {len(bin_ops)}.
-                    """)
-                elif not res:
-                    st.warning(f"Rất tiếc, không tìm thấy phép tính nào ra chính xác {target_val}.")
+                    st.error(f"❌ Lỗi: Có {len(nums)} số thì cần đúng {len(nums)-1} phép nối (+, -, *, /, ^). Bạn nhập {len(bin_ops)}.")
+                
+                elif not results:
+                    st.warning(f"Không tìm thấy bất kỳ kết quả nào trong phạm vi sai số +/- {max_tol}.")
+                
                 else:
-                    st.success(f"🎉 Tìm thấy {len(res)} cách tính ra {target_val}!")
+                    # Sắp xếp kết quả: Ưu tiên sai số thấp nhất (diff tăng dần)
+                    results.sort(key=lambda x: x['diff'])
                     
-                    # Hiển thị kết quả đẹp
-                    for i, s in enumerate(res, 1):
-                        # Dùng st.empty để tạo khoảng cách nhỏ
-                        col_a, col_b = st.columns([1, 4])
-                        with col_a:
-                            st.write(f"Cách {i}:")
-                        with col_b:
-                            # Hiển thị dạng code block cho dễ nhìn
+                    # Tách nhóm Chính xác
+                    exact_matches = [r for r in results if r['is_exact']]
+                    
+                    # LOGIC HIỂN THỊ THÔNG MINH
+                    if exact_matches:
+                        st.success(f"🎉 Tuyệt vời! Tìm thấy {len(exact_matches)} kết quả CHÍNH XÁC!")
+                        for i, s in enumerate(exact_matches[:10], 1): # Chỉ hiện 10 cái đầu
                             st.code(f"{s['expr']} = {target_val}")
+                    else:
+                        st.warning(f"⚠️ Không có kết quả chính xác tuyệt đối.")
+                        st.info(f"👉 Dưới đây là top 5 kết quả GẦN ĐÚNG nhất (Sai số nhỏ nhất):")
+                        
+                        count = 0
+                        for s in results:
+                            # Bỏ qua nếu diff quá lớn (giữ lại logic top best)
+                            st.write(f"**Sai số: {s['diff']:.5f}**")
+                            st.code(f"{s['expr']} = {s['val']:.5f}")
+                            count += 1
+                            if count >= 5: break # Chỉ lấy top 5 sai số
 
     except Exception as e:
         st.error(f"Lỗi nhập liệu: {e}")
