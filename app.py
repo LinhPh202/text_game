@@ -35,14 +35,14 @@ def apply_unary(val, op):
 
 # --- 2. THUẬT TOÁN GIẢI ĐA MỤC TIÊU ---
 def solve_multi_targets(nums, ops, allow_brackets, targets, max_tolerance):
-    results = [] # List chứa dict kết quả
+    results = [] 
     seen_exprs = set() 
     
     # Phân loại phép tính
     binary_ops_pool = [op for op in ops if op in ['+', '-', '*', '/', '^']]
     unary_ops_pool = [op for op in ops if op in ['sqrt', '!']]
     
-    # CHECK SỐ LƯỢNG: N số cần N-1 phép nối
+    # CHECK SỐ LƯỢNG
     if len(binary_ops_pool) != len(nums) - 1:
         return "ERROR_COUNT"
 
@@ -54,7 +54,7 @@ def solve_multi_targets(nums, ops, allow_brackets, targets, max_tolerance):
     for num_perm in itertools.permutations(nums):
         for u_perm in unary_perms:
             
-            # Tính giá trị các số hạng sau khi Unary
+            # Tính Unary
             terms_vals = []
             terms_strs = []
             valid_term = True
@@ -74,10 +74,10 @@ def solve_multi_targets(nums, ops, allow_brackets, targets, max_tolerance):
             
             if not valid_term: continue
 
-            # Hoán vị phép tính Binary
+            # Hoán vị Binary
             for b_perm in set(itertools.permutations(binary_ops_pool)):
                 
-                # Tạo component tuyến tính
+                # Tạo component
                 base_components = []
                 for i in range(len(b_perm)):
                     base_components.append((terms_strs[i], terms_vals[i]))
@@ -124,21 +124,18 @@ def solve_multi_targets(nums, ops, allow_brackets, targets, max_tolerance):
                     final_val = safe_eval(full_py)
                     
                     if final_val is not None:
-                        # --- LOGIC ĐA MỤC TIÊU ---
-                        # Kiểm tra kết quả này với TỪNG target trong danh sách
+                        # So khớp với từng Target
                         for t in targets:
                             diff = abs(final_val - t)
                             
                             if diff <= max_tolerance:
-                                # Key để lọc trùng phải bao gồm cả Target (vì 1 biểu thức có thể gần nhiều target)
                                 unique_key = f"{full_disp}_{t}"
-                                
                                 if unique_key not in seen_exprs:
                                     results.append({
                                         'val': final_val, 
                                         'expr': full_disp, 
                                         'diff': diff,
-                                        'target_matched': t, # Lưu lại nó khớp với Target nào
+                                        'target_matched': t,
                                         'is_exact': diff < 1e-9
                                     })
                                     seen_exprs.add(unique_key)
@@ -147,7 +144,7 @@ def solve_multi_targets(nums, ops, allow_brackets, targets, max_tolerance):
 
 # --- 3. GIAO DIỆN STREAMLIT ---
 st.title("🎯 Solver: Phương trình Quần Què")
-st.markdown("Tìm công thức cho nhiều con số đích cùng lúc.")
+st.markdown("Nhập nhiều Đích. Nếu tìm ra chính xác, kết quả sẽ được **Highlight Xanh Lá**.")
 
 # Input
 with st.container():
@@ -158,9 +155,7 @@ with st.container():
         input_ops = st.text_input("2. Nhập phép tính:", "+, -, *")
         st.caption("Ví dụ: `+, -, *, /, ^, sqrt, !`")
 
-    # Input Multi-Target
-    input_targets = st.text_input("3. Nhập các Đích (Target) cần tìm (cách nhau dấu phẩy):", "1, 20, 24, 100")
-    
+    input_targets = st.text_input("3. Nhập các Đích (Target):", "1, 20, 24, 100")
     max_tol = st.slider("Phạm vi tìm sai số (Backup):", 0.0, 10.0, 2.0, 0.1)
 
 allow_bracket = st.checkbox("✅ Cho phép dùng Ngoặc (Tối đa 1 cặp)", value=False)
@@ -169,61 +164,76 @@ if st.button("🚀 Quét tất cả Target"):
     try:
         nums = [float(x.strip()) for x in input_nums.split(',') if x.strip() != '']
         ops = [x.strip().lower() for x in input_ops.split(',') if x.strip() != '']
-        
-        # Parse Targets
         target_list = [float(x.strip()) for x in input_targets.split(',') if x.strip() != '']
+        target_list.sort() # Sắp xếp để hiển thị cho đẹp
         
         if len(nums) > 6:
             st.error("⚠️ Quá nhiều số! Hãy nhập tối đa 5-6 số.")
         elif len(target_list) == 0:
             st.error("⚠️ Vui lòng nhập ít nhất 1 Target.")
         else:
-            with st.spinner(f'Đang tính toán cho {len(target_list)} đích đến...'):
-                
-                # Gọi hàm giải Đa mục tiêu
+            with st.spinner(f'Đang tính toán...'):
                 all_results = solve_multi_targets(nums, ops, allow_bracket, target_list, max_tol)
                 
                 if all_results == "ERROR_COUNT":
-                    bin_ops = [op for op in ops if op in ['+', '-', '*', '/', '^']]
-                    st.error(f"❌ Lỗi: Có {len(nums)} số thì cần đúng {len(nums)-1} phép nối (+, -, *, /, ^).")
-                
+                    st.error(f"❌ Lỗi: Số lượng phép tính 2 ngôi không khớp với số lượng con số.")
                 elif not all_results:
                     st.warning("Không tìm thấy kết quả nào phù hợp.")
-                
                 else:
-                    # GIAO DIỆN TAB: Tạo Tab cho mỗi Target
-                    # Sắp xếp target list để hiển thị tab theo thứ tự tăng dần
-                    target_list.sort()
+                    # --- XỬ LÝ DỮ LIỆU ĐỂ TẠO TAB ---
                     
-                    # Tạo tên cho các Tab
-                    tab_names = [f"Đích {t}" for t in target_list]
+                    # 1. Gom nhóm kết quả theo Target
+                    # Dạng: {target_1: [list_results], target_2: [list_results]}
+                    results_map = {t: [] for t in target_list}
+                    for r in all_results:
+                        results_map[r['target_matched']].append(r)
+                    
+                    # 2. Tạo tên Tab dựa trên việc có đáp án chính xác hay không
+                    tab_names = []
+                    for t in target_list:
+                        # Kiểm tra xem target t có kết quả chính xác nào không
+                        has_exact = any(r['is_exact'] for r in results_map[t])
+                        
+                        if has_exact:
+                            tab_names.append(f"✅ {t} (Xong)") # Có dấu tích xanh
+                        else:
+                            tab_names.append(f"⚠️ {t} (Gần đúng)") # Dấu cảnh báo
+                            
+                    # 3. Hiển thị Tabs
                     tabs = st.tabs(tab_names)
                     
-                    # Duyệt qua từng tab và lọc dữ liệu tương ứng
                     for i, t in enumerate(target_list):
                         with tabs[i]:
-                            # Lọc kết quả thuộc về Target t
-                            t_results = [r for r in all_results if r['target_matched'] == t]
+                            t_results = results_map[t]
                             
                             if not t_results:
-                                st.write(f"❌ Không tìm thấy công thức nào gần **{t}** (trong phạm vi +/- {max_tol}).")
+                                st.write(f"Không có kết quả trong phạm vi +/- {max_tol}.")
                             else:
-                                # Sắp xếp theo độ lệch (diff)
                                 t_results.sort(key=lambda x: x['diff'])
-                                
-                                # Tách nhóm chính xác
                                 exacts = [r for r in t_results if r['is_exact']]
+                                approxs = [r for r in t_results if not r['is_exact']]
                                 
+                                # --- HIGHLIGHT XANH LÁ (CHỈ KHI CHÍNH XÁC) ---
                                 if exacts:
-                                    st.success(f"🎉 Có {len(exacts)} công thức **CHÍNH XÁC** bằng {t}!")
+                                    st.success(f"🎉 **ĐÁP ÁN CHÍNH XÁC CHO {t}**")
+                                    # Hiển thị các công thức chính xác trong khung xanh
                                     for ex in exacts[:10]:
                                         st.code(f"{ex['expr']} = {t}")
-                                else:
-                                    st.warning(f"⚠️ Không có kết quả chính xác cho {t}.")
-                                    st.info("Các kết quả **GẦN ĐÚNG** nhất:")
-                                    for near in t_results[:5]: # Top 5 gần nhất
-                                        st.write(f"- Sai số: **{near['diff']:.5f}**")
-                                        st.code(f"{near['expr']} = {near['val']:.5f}")
+                                        
+                                # --- KẾT QUẢ GẦN ĐÚNG (KHÔNG HIGHLIGHT XANH) ---
+                                if approxs:
+                                    # Nếu đã có exact thì dùng expander để ẩn bớt approx cho gọn
+                                    # Nếu chưa có exact thì hiện approx ra luôn
+                                    if exacts:
+                                        with st.expander("Xem thêm các kết quả gần đúng (Sai số)"):
+                                            for near in approxs[:5]:
+                                                st.write(f"Sai số: {near['diff']:.5f}")
+                                                st.code(f"{near['expr']} = {near['val']:.5f}")
+                                    else:
+                                        st.warning(f"⚠️ Không có đáp án chính xác. Đây là các phương án tốt nhất:")
+                                        for near in approxs[:5]:
+                                            st.write(f"Sai số: **{near['diff']:.5f}**")
+                                            st.code(f"{near['expr']} = {near['val']:.5f}")
 
     except Exception as e:
         st.error(f"Lỗi nhập liệu: {e}")
