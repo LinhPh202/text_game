@@ -3,13 +3,13 @@ import math
 import itertools
 
 # Cấu hình trang
-st.set_page_config(page_title="Solver: Min & Target", page_icon="🧮")
+st.set_page_config(page_title="Ultimate Math Solver", page_icon="🧮")
 
-# --- 1. CÁC HÀM TÍNH TOÁN (CORE) ---
+# --- 1. CORE: HÀM TÍNH TOÁN ---
 def safe_eval(expr):
-    """Tính toán biểu thức chuỗi an toàn"""
+    """Tính toán an toàn, trả về None nếu lỗi"""
     try:
-        if "**" in expr:
+        if "**" in expr: # Check số mũ
             parts = expr.split("**")
             if float(parts[1].split()[0].replace(')', '')) > 6: return None
             
@@ -32,19 +32,26 @@ def apply_unary(val, op):
     except: return None
     return None
 
-# --- 2. THUẬT TOÁN SINH HOÁN VỊ (DÙNG CHUNG) ---
+# --- 2. CORE: BỘ SINH BIỂU THỨC (GENERATOR) ---
 def generate_expressions(nums, ops, allow_brackets):
-    """Hàm generator để sinh ra các biểu thức và giá trị, giúp tái sử dụng code"""
+    """
+    Hàm sinh tất cả các biểu thức hợp lệ.
+    Dùng 'yield' để tiết kiệm bộ nhớ thay vì lưu list khổng lồ.
+    """
     binary_ops_pool = [op for op in ops if op in ['+', '-', '*', '/', '^']]
     unary_ops_pool = [op for op in ops if op in ['sqrt', '!']]
     
+    # Validation
     if len(binary_ops_pool) != len(nums) - 1:
         return "ERROR_COUNT"
 
+    # Chuẩn bị hoán vị
     u_pool_full = unary_ops_pool + [None] * (len(nums) - len(unary_ops_pool))
     unary_perms = set(itertools.permutations(u_pool_full))
 
+    # Loop: Hoán vị Số
     for num_perm in itertools.permutations(nums):
+        # Loop: Hoán vị Unary (Căn, Giai thừa)
         for u_perm in unary_perms:
             terms_vals = []
             terms_strs = []
@@ -64,6 +71,7 @@ def generate_expressions(nums, ops, allow_brackets):
             
             if not valid_term: continue
 
+            # Loop: Hoán vị Binary (+, -, *, /)
             for b_perm in set(itertools.permutations(binary_ops_pool)):
                 base_components = []
                 for i in range(len(b_perm)):
@@ -73,6 +81,7 @@ def generate_expressions(nums, ops, allow_brackets):
                     base_components.append((op_symbol, py_op))
                 base_components.append((terms_strs[-1], terms_vals[-1]))
                 
+                # Logic Ngoặc
                 bracket_configs = [None]
                 if allow_brackets:
                     n_terms = len(terms_vals)
@@ -81,6 +90,7 @@ def generate_expressions(nums, ops, allow_brackets):
                             if i == 0 and j == n_terms - 1: continue
                             bracket_configs.append((i, j))
 
+                # Tính toán cuối cùng
                 for cfg in bracket_configs:
                     py_parts = []
                     disp_parts = []
@@ -109,13 +119,12 @@ def generate_expressions(nums, ops, allow_brackets):
                     if final_val is not None:
                         yield final_val, full_disp
 
-# --- 3. CÁC HÀM GIẢI CỤ THỂ ---
+# --- 3. CÁC HÀM GIẢI ---
 
-def solve_multi_targets(nums, ops, allow_brackets, targets, max_tolerance):
-    """Tìm theo Đích"""
+def solve_target_search(nums, ops, allow_brackets, targets, max_tolerance):
+    """Chế độ 1: Tìm theo Target"""
     results = []
     seen_exprs = set()
-    
     gen = generate_expressions(nums, ops, allow_brackets)
     if gen == "ERROR_COUNT": return "ERROR_COUNT"
     
@@ -132,9 +141,17 @@ def solve_multi_targets(nums, ops, allow_brackets, targets, max_tolerance):
                     seen_exprs.add(unique_key)
     return results
 
-def solve_find_min(nums, ops, allow_brackets):
-    """Tìm số nguyên nhỏ nhất (Min Integer)"""
-    min_val = float('inf')
+def solve_optimization(nums, ops, allow_brackets, mode):
+    """
+    Chế độ 2, 3, 4: Tìm Min/Max theo điều kiện
+    mode: 'global_min', 'min_positive', 'max_negative'
+    """
+    # Khởi tạo giá trị kỷ lục (Record)
+    if mode == 'max_negative':
+        best_val = float('-inf') # Tìm max nên khởi đầu bằng âm vô cùng
+    else:
+        best_val = float('inf') # Tìm min nên khởi đầu bằng dương vô cùng
+
     best_results = []
     seen_exprs = set()
     
@@ -142,33 +159,58 @@ def solve_find_min(nums, ops, allow_brackets):
     if gen == "ERROR_COUNT": return "ERROR_COUNT"
     
     for val, expr in gen:
-        # 1. Kiểm tra có phải số nguyên không (sai số cực nhỏ)
+        # Chỉ xét số NGUYÊN
         if abs(val - round(val)) < 1e-9:
             int_val = int(round(val))
             
-            # 2. So sánh Min
-            if int_val < min_val:
-                # Tìm thấy kỷ lục mới -> Reset list và cập nhật min
-                min_val = int_val
+            # --- BỘ LỌC ĐIỀU KIỆN ---
+            if mode == 'min_positive' and int_val <= 0: continue
+            if mode == 'max_negative' and int_val >= 0: continue
+            
+            # --- SO SÁNH KỶ LỤC ---
+            update_record = False
+            
+            if mode == 'max_negative':
+                # Tìm âm lớn nhất (gần 0 nhất): Ví dụ -1 lớn hơn -100
+                if int_val > best_val: update_record = True
+            else:
+                # Tìm min (Global hoặc Positive): Ví dụ 1 nhỏ hơn 10
+                if int_val < best_val: update_record = True
+            
+            # Cập nhật danh sách kết quả
+            if update_record:
+                best_val = int_val
                 best_results = [{'val': int_val, 'expr': expr}]
                 seen_exprs = {expr}
-            elif int_val == min_val:
-                # Bằng kỷ lục hiện tại -> Thêm vào list (nếu chưa trùng)
+            elif int_val == best_val:
                 if expr not in seen_exprs:
                     best_results.append({'val': int_val, 'expr': expr})
                     seen_exprs.add(expr)
                     
-    return best_results, min_val
+    return best_results, best_val
 
-# --- 4. GIAO DIỆN STREAMLIT ---
-st.title("🧮 Solver: Đa năng")
+# --- 4. GIAO DIỆN UI ---
+st.title("🧮 Super Math Solver")
 
-# Chọn chế độ
-mode = st.radio(
-    "Chọn chế độ:",
-    ["🎯 Tìm theo Đích (Target)", "📉 Tìm Min (Số nguyên bé nhất)"],
-    horizontal=True
+# Menu chọn chế độ thông minh
+mode_label = st.radio(
+    "👉 Chọn mục tiêu bài toán:",
+    [
+        "🎯 Tìm theo Đích (Target)", 
+        "📉 Tìm số nguyên Bé nhất (Global Min)",
+        "➕ Tìm số nguyên DƯƠNG bé nhất (Min Positive)",
+        "➖ Tìm số nguyên ÂM lớn nhất (Max Negative)"
+    ]
 )
+
+# Map label sang key code
+mode_map = {
+    "🎯 Tìm theo Đích (Target)": "target",
+    "📉 Tìm số nguyên Bé nhất (Global Min)": "global_min",
+    "➕ Tìm số nguyên DƯƠNG bé nhất (Min Positive)": "min_positive",
+    "➖ Tìm số nguyên ÂM lớn nhất (Max Negative)": "max_negative"
+}
+current_mode = mode_map[mode_label]
 
 st.write("---")
 
@@ -183,23 +225,24 @@ with st.container():
 
     col3, col4 = st.columns(2)
     with col3:
-        # Logic: Disable ô Target nếu đang ở chế độ Min
-        is_target_disabled = (mode == "📉 Tìm Min (Số nguyên bé nhất)")
+        # Chỉ hiện ô Target khi ở chế độ Target
+        is_disabled = (current_mode != "target")
         input_targets = st.text_input(
-            "3. Nhập các Đích (Target):", 
+            "3. Nhập Target:", 
             "24", 
-            disabled=is_target_disabled,
-            help="Ô này bị khóa khi chọn chế độ Tìm Min"
+            disabled=is_disabled,
+            help="Chỉ dùng cho chế độ tìm đích"
         )
     with col4:
-        if not is_target_disabled:
-            max_tol = st.slider("4. Phạm vi sai số (+/-):", 0.0, 10.0, 2.0, 0.1)
+        if not is_disabled:
+            max_tol = st.slider("4. Phạm vi sai số:", 0.0, 10.0, 2.0, 0.1)
         else:
-            st.info("Chế độ Min sẽ tự động tìm số nguyên nhỏ nhất.")
+            st.info("Chế độ Tự động sẽ tìm số nguyên tối ưu.")
 
-allow_bracket = st.checkbox("✅ Cho phép dùng Ngoặc (Tối đa 1 cặp)", value=False)
+allow_bracket = st.checkbox("✅ Cho phép dùng Ngoặc (1 cặp)", value=False)
 
-if st.button("🚀 Thực hiện"):
+# Nút Action
+if st.button("🚀 Giải bài toán"):
     try:
         nums = [float(x.strip()) for x in input_nums.split(',') if x.strip() != '']
         ops = [x.strip().lower() for x in input_ops.split(',') if x.strip() != '']
@@ -207,71 +250,78 @@ if st.button("🚀 Thực hiện"):
         if len(nums) > 6:
             st.error("⚠️ Quá nhiều số! Hãy nhập tối đa 5-6 số.")
         else:
+            # === XỬ LÝ THEO CHẾ ĐỘ ===
             
-            # --- CHẾ ĐỘ 1: TÌM MIN ---
-            if mode == "📉 Tìm Min (Số nguyên bé nhất)":
-                with st.spinner("Đang quét tất cả các khả năng để tìm Min..."):
-                    results, min_val = solve_find_min(nums, ops, allow_bracket)
-                    
-                    if results == "ERROR_COUNT":
-                        st.error("❌ Lỗi: Số lượng phép tính không khớp với số lượng con số.")
-                    elif not results:
-                        st.warning("Không tìm thấy bất kỳ kết quả SỐ NGUYÊN nào từ các phép tính này.")
-                    else:
-                        st.success(f"🏆 GIÁ TRỊ NHỎ NHẤT TÌM ĐƯỢC LÀ: {min_val}")
-                        st.write(f"Tìm thấy **{len(results)}** cách để tạo ra số **{min_val}**:")
-                        
-                        for r in results[:10]: # Hiện top 10 cách
-                            st.code(f"{r['expr']} = {r['val']}")
-
-            # --- CHẾ ĐỘ 2: TÌM TARGET (CŨ) ---
-            else:
+            # 1. Chế độ TARGET
+            if current_mode == "target":
                 target_list = [float(x.strip()) for x in input_targets.split(',') if x.strip() != '']
                 target_list.sort()
                 
-                if len(target_list) == 0:
-                    st.error("⚠️ Vui lòng nhập ít nhất 1 Target.")
+                if not target_list:
+                    st.error("Vui lòng nhập Target.")
                 else:
-                    with st.spinner(f'Đang tính toán...'):
-                        all_results = solve_multi_targets(nums, ops, allow_bracket, target_list, max_tol)
+                    with st.spinner('Đang tìm kiếm...'):
+                        res = solve_target_search(nums, ops, allow_brackets=allow_bracket, targets=target_list, max_tolerance=max_tol)
                         
-                        if all_results == "ERROR_COUNT":
-                            st.error("❌ Lỗi: Số lượng phép tính không khớp với số lượng con số.")
+                        if res == "ERROR_COUNT":
+                            st.error("❌ Lỗi: Số lượng phép tính không khớp.")
                         else:
-                            results_map = {t: [] for t in target_list}
-                            for r in all_results:
-                                results_map[r['target_matched']].append(r)
+                            # Hiển thị kết quả Target (như cũ)
+                            r_map = {t: [] for t in target_list}
+                            for r in res: r_map[r['target_matched']].append(r)
                             
-                            tab_names = []
-                            for t in target_list:
-                                res = results_map[t]
-                                if not res: tab_names.append(f"❌ {t}")
-                                elif any(r['is_exact'] for r in res): tab_names.append(f"✅ {t}")
-                                else: tab_names.append(f"⚠️ {t}")
-                                    
-                            tabs = st.tabs(tab_names)
+                            tabs = st.tabs([f"{'✅' if any(i['is_exact'] for i in r_map[t]) else ('⚠️' if r_map[t] else '❌')} {t}" for t in target_list])
                             
                             for i, t in enumerate(target_list):
                                 with tabs[i]:
-                                    t_results = results_map[t]
-                                    if not t_results:
-                                        st.error(f"⛔ Không tìm thấy phương trình cho {t} trong phạm vi sai số +/- {max_tol}.")
+                                    dat = r_map[t]
+                                    if not dat: st.error(f"Không tìm thấy {t}")
                                     else:
-                                        t_results.sort(key=lambda x: x['diff'])
-                                        exacts = [r for r in t_results if r['is_exact']]
-                                        approxs = [r for r in t_results if not r['is_exact']]
+                                        dat.sort(key=lambda x: x['diff'])
+                                        exacts = [x for x in dat if x['is_exact']]
+                                        approxs = [x for x in dat if not x['is_exact']]
                                         
                                         if exacts:
-                                            st.success(f"🎉 **CHÍNH XÁC**")
-                                            for ex in exacts[:10]: st.code(f"{ex['expr']} = {t}")
-                                            if approxs:
+                                            st.success(f"🎉 CHÍNH XÁC")
+                                            for e in exacts[:10]: st.code(f"{e['expr']} = {t}")
+                                        
+                                        if approxs:
+                                            if exacts: 
                                                 with st.expander("Kết quả gần đúng"):
-                                                    for n in approxs[:5]: st.code(f"{n['expr']} = {n['val']:.5f}")
-                                        elif approxs:
-                                            st.warning(f"⚠️ Chỉ có **GẦN ĐÚNG**")
-                                            for n in approxs[:5]:
-                                                st.write(f"Sai số: {n['diff']:.5f}")
-                                                st.code(f"{n['expr']} = {n['val']:.5f}")
+                                                    for a in approxs[:5]: st.code(f"{a['expr']} = {a['val']:.5f}")
+                                            else:
+                                                st.warning("⚠️ GẦN ĐÚNG")
+                                                for a in approxs[:5]: 
+                                                    st.write(f"Sai số: {a['diff']:.5f}")
+                                                    st.code(f"{a['expr']} = {a['val']:.5f}")
+
+            # 2. Chế độ TỐI ƯU (Global Min, Min Pos, Max Neg)
+            else:
+                msg_map = {
+                    "global_min": "Đang tìm số nguyên BÉ NHẤT toàn cục...",
+                    "min_positive": "Đang tìm số nguyên DƯƠNG (>0) bé nhất...",
+                    "max_negative": "Đang tìm số nguyên ÂM (<0) lớn nhất..."
+                }
+                
+                with st.spinner(msg_map[current_mode]):
+                    results, best_val = solve_optimization(nums, ops, allow_bracket, current_mode)
+                    
+                    if results == "ERROR_COUNT":
+                        st.error("❌ Lỗi: Số lượng phép tính không khớp.")
+                    elif not results:
+                        st.warning("Không tìm thấy số nguyên nào thỏa mãn điều kiện này.")
+                    else:
+                        # Tiêu đề kết quả
+                        title_map = {
+                            "global_min": f"🏆 SỐ NGUYÊN BÉ NHẤT: {best_val}",
+                            "min_positive": f"🏆 SỐ NGUYÊN DƯƠNG BÉ NHẤT: {best_val}",
+                            "max_negative": f"🏆 SỐ NGUYÊN ÂM LỚN NHẤT (Gần 0 nhất): {best_val}"
+                        }
+                        st.success(title_map[current_mode])
+                        
+                        st.write(f"Tìm thấy **{len(results)}** cách tính:")
+                        for r in results[:10]:
+                            st.code(f"{r['expr']} = {r['val']}")
 
     except Exception as e:
-        st.error(f"Lỗi nhập liệu: {e}")
+        st.error(f"Lỗi hệ thống: {e}")
