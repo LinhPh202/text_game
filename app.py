@@ -3,7 +3,7 @@ import math
 import itertools
 
 # Cấu hình trang
-st.set_page_config(page_title="Solver: Chính xác hoặc Không", page_icon="🎯")
+st.set_page_config(page_title="Solver: 3 Trạng Thái", page_icon="🎯")
 
 # --- 1. CÁC HÀM TÍNH TOÁN (CORE) ---
 def safe_eval(expr):
@@ -33,8 +33,8 @@ def apply_unary(val, op):
     except: return None
     return None
 
-# --- 2. THUẬT TOÁN GIẢI (CHỈ TÌM CHÍNH XÁC) ---
-def solve_strict_targets(nums, ops, allow_brackets, targets):
+# --- 2. THUẬT TOÁN GIẢI (CÓ TOLERANCE) ---
+def solve_multi_targets(nums, ops, allow_brackets, targets, max_tolerance):
     results = [] 
     seen_exprs = set() 
     
@@ -124,26 +124,33 @@ def solve_strict_targets(nums, ops, allow_brackets, targets):
                     final_val = safe_eval(full_py)
                     
                     if final_val is not None:
-                        # --- LOGIC STRICT: CHỈ LẤY CHÍNH XÁC ---
+                        # Logic: Chỉ lưu nếu nằm trong Max Tolerance
                         for t in targets:
-                            # So sánh số thực với độ lệch cực nhỏ (coi như bằng 0)
-                            if abs(final_val - t) < 1e-9:
+                            diff = abs(final_val - t)
+                            
+                            if diff <= max_tolerance:
                                 unique_key = f"{full_disp}_{t}"
                                 if unique_key not in seen_exprs:
                                     results.append({
                                         'val': final_val, 
                                         'expr': full_disp, 
-                                        'target_matched': t
+                                        'diff': diff,
+                                        'target_matched': t,
+                                        'is_exact': diff < 1e-9
                                     })
                                     seen_exprs.add(unique_key)
                                 
     return results
 
 # --- 3. GIAO DIỆN STREAMLIT ---
-st.title("🎯 Solver: Phương trình Quần què")
-st.markdown("Chỉ hiển thị kết quả **CHÍNH XÁC**. Nếu không có sẽ báo lỗi.")
+st.title("🎯 Solver: Phương trình Quần Què")
+st.markdown("""
+1. **Chính xác:** Highlight Xanh ✅
+2. **Gần đúng (trong sai số):** Highlight Vàng ⚠️
+3. **Không tìm được:** Highlight Đỏ ❌
+""")
 
-# Input
+# Input Area
 with st.container():
     col1, col2 = st.columns(2)
     with col1:
@@ -152,11 +159,16 @@ with st.container():
         input_ops = st.text_input("2. Nhập phép tính:", "+, -, *")
         st.caption("Ví dụ: `+, -, *, /, ^, sqrt, !`")
 
-    input_targets = st.text_input("3. Nhập các Đích (Target):", "1, 20, 24, 100")
-    
+    col3, col4 = st.columns(2)
+    with col3:
+        input_targets = st.text_input("3. Nhập các Đích (Target):", "1, 20, 24, 100")
+    with col4:
+        # Thanh trượt quan trọng xác định "Phạm vi cho phép"
+        max_tol = st.slider("4. Phạm vi sai số cho phép (+/-):", 0.0, 10.0, 2.0, 0.1)
+
 allow_bracket = st.checkbox("✅ Cho phép dùng Ngoặc (Tối đa 1 cặp)", value=False)
 
-if st.button("🚀 Quét chính xác"):
+if st.button("🚀 Quét kết quả"):
     try:
         nums = [float(x.strip()) for x in input_nums.split(',') if x.strip() != '']
         ops = [x.strip().lower() for x in input_ops.split(',') if x.strip() != '']
@@ -168,43 +180,72 @@ if st.button("🚀 Quét chính xác"):
         elif len(target_list) == 0:
             st.error("⚠️ Vui lòng nhập ít nhất 1 Target.")
         else:
-            with st.spinner(f'Đang tìm kiếm chính xác...'):
+            with st.spinner(f'Đang tính toán trong phạm vi sai số {max_tol}...'):
                 
-                # Gọi hàm Strict
-                all_results = solve_strict_targets(nums, ops, allow_bracket, target_list)
+                # Hàm giải trả về tất cả kết quả nằm trong Tolerance
+                all_results = solve_multi_targets(nums, ops, allow_bracket, target_list, max_tol)
                 
                 if all_results == "ERROR_COUNT":
-                    st.error(f"❌ Lỗi: Số lượng phép tính 2 ngôi không khớp với số lượng con số.")
+                    st.error(f"❌ Lỗi: Số lượng phép tính không khớp với số lượng con số.")
                 else:
-                    # Gom nhóm kết quả
+                    # --- GOM NHÓM KẾT QUẢ ---
                     results_map = {t: [] for t in target_list}
                     for r in all_results:
                         results_map[r['target_matched']].append(r)
                     
-                    # Tạo tên Tab (✅ hoặc ❌)
+                    # --- XÁC ĐỊNH TRẠNG THÁI CỦA TỪNG TAB ---
                     tab_names = []
                     for t in target_list:
-                        if results_map[t]: # Có kết quả (list không rỗng)
-                            tab_names.append(f"✅ {t}")
-                        else:
+                        res = results_map[t]
+                        if not res:
+                            # TH3: Không có kết quả nào (cả chính xác lẫn sai số)
                             tab_names.append(f"❌ {t}")
+                        else:
+                            # Kiểm tra xem có chính xác không
+                            has_exact = any(r['is_exact'] for r in res)
+                            if has_exact:
+                                # TH1: Có chính xác
+                                tab_names.append(f"✅ {t}")
+                            else:
+                                # TH2: Chỉ có gần đúng
+                                tab_names.append(f"⚠️ {t}")
                             
-                    # Hiển thị Tabs
+                    # --- HIỂN THỊ TABS ---
                     tabs = st.tabs(tab_names)
                     
                     for i, t in enumerate(target_list):
                         with tabs[i]:
                             t_results = results_map[t]
                             
-                            if t_results:
-                                # TRƯỜNG HỢP CÓ KẾT QUẢ -> XANH LÁ
-                                st.success(f"🎉 **Tìm thấy {len(t_results)} đáp án chính xác cho {t}**")
-                                for ex in t_results[:10]:
-                                    st.code(f"{ex['expr']} = {t}")
+                            # TRƯỜNG HỢP 3: KHÔNG TÌM THẤY (Highlight Đỏ)
+                            if not t_results:
+                                st.error(f"⛔ Không tìm thấy phương trình nào cho **{t}** trong phạm vi sai số +/- {max_tol}.")
+                                st.write("Hãy thử tăng 'Phạm vi sai số cho phép' hoặc đổi phép tính.")
+                            
                             else:
-                                # TRƯỜNG HỢP KHÔNG CÓ -> ĐỎ
-                                st.error(f"⛔ Không tìm thấy phép tính nào ra chính xác {t}.")
-                                st.write("Không hiển thị kết quả gần đúng theo yêu cầu.")
+                                t_results.sort(key=lambda x: x['diff'])
+                                exacts = [r for r in t_results if r['is_exact']]
+                                approxs = [r for r in t_results if not r['is_exact']]
+                                
+                                # TRƯỜNG HỢP 1: CÓ CHÍNH XÁC (Highlight Xanh)
+                                if exacts:
+                                    st.success(f"🎉 **ĐÁP ÁN CHÍNH XÁC CHO {t}**")
+                                    for ex in exacts[:10]:
+                                        st.code(f"{ex['expr']} = {t}")
+                                    
+                                    # Nếu có chính xác, thường ta không cần xem gần đúng nữa, nhưng có thể để trong expander
+                                    if approxs:
+                                        with st.expander(f"Xem thêm các kết quả sai số (trong phạm vi {max_tol})"):
+                                            for near in approxs[:5]:
+                                                st.write(f"Sai số: {near['diff']:.5f}")
+                                                st.code(f"{near['expr']} = {near['val']:.5f}")
+
+                                # TRƯỜNG HỢP 2: CHỈ CÓ GẦN ĐÚNG (Highlight Vàng)
+                                elif approxs:
+                                    st.warning(f"⚠️ Không tìm thấy số chính xác **{t}**. Dưới đây là các kết quả **GẦN ĐÚNG** nhất:")
+                                    for near in approxs[:5]:
+                                        st.markdown(f"**Sai số: `{near['diff']:.5f}`**")
+                                        st.code(f"{near['expr']} = {near['val']:.5f}")
 
     except Exception as e:
         st.error(f"Lỗi nhập liệu: {e}")
